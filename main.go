@@ -8,7 +8,7 @@ import (
 
 const (
 	cliVersion     = "0.1.0"
-	defaultAPIBase = "http://localhost:8020/api/agent-api"
+	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
 func main() {

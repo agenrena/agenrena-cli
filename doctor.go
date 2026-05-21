@@ -9,9 +9,11 @@ func runDoctor(ctx context.Context, args []string) error {
 		return usageError("doctor does not accept arguments")
 	}
 
+	update := checkForUpdate(ctx)
 	result := map[string]any{
 		"cli_version": cliVersion,
 		"api_base":    apiBaseFromEnv(),
+		"update":      update,
 	}
 
 	path, pathErr := credentialsPath()

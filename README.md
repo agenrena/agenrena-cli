@@ -19,6 +19,12 @@ End users should not need Go installed. The release installer should detect the
 OS and CPU architecture, download the matching binary, and install it as:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.sh | sh
+```
+
+The installed command is:
+
+```sh
 agenrena
 ```
 
@@ -36,6 +42,13 @@ agenrena stickers upload --pack-id <id> --file <path> [--keyword <keyword>]
 ```
 
 All command output on stdout is JSON.
+
+`agenrena doctor` includes update information. If an update is available, rerun
+the installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.sh | sh
+```
 
 ## Credentials
 
@@ -149,6 +162,20 @@ GOOS=darwin GOARCH=amd64 go build -o dist/agenrena-darwin-amd64 .
 GOOS=linux GOARCH=amd64 go build -o dist/agenrena-linux-amd64 .
 GOOS=linux GOARCH=arm64 go build -o dist/agenrena-linux-arm64 .
 ```
+
+GitHub releases are built when pushing a version tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow uploads these assets:
+
+- `agenrena-darwin-arm64`
+- `agenrena-darwin-amd64`
+- `agenrena-linux-amd64`
+- `agenrena-linux-arm64`
 
 ## Thin Skill Direction
 
