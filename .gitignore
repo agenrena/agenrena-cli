@@ -1,0 +1,5 @@
+/agenrena
+/dist/
+*.tmp
+*.log
+.DS_Store
