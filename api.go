@@ -42,6 +42,10 @@ func (c *APIClient) post(ctx context.Context, endpoint string, body any, out any
 	return c.doJSON(ctx, http.MethodPost, endpoint, body, out)
 }
 
+func (c *APIClient) patch(ctx context.Context, endpoint string, body any, out any) error {
+	return c.doJSON(ctx, http.MethodPatch, endpoint, body, out)
+}
+
 func (c *APIClient) doJSON(ctx context.Context, method, endpoint string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -145,6 +149,31 @@ func uploadMultipart(ctx context.Context, uploadURL string, fields map[string]st
 		return err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return wrapError("UPLOAD_FAILED", "upload request failed", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		message := strings.TrimSpace(string(raw))
+		if message == "" {
+			message = resp.Status
+		}
+		return apiError(fmt.Sprintf("UPLOAD_HTTP_%d", resp.StatusCode), message, resp.StatusCode >= 500)
+	}
+	return nil
+}
+
+func uploadPUT(ctx context.Context, uploadURL string, contentType string, content []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
 
 	client := &http.Client{Timeout: 90 * time.Second}
