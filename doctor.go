@@ -34,7 +34,7 @@ func runDoctor(ctx context.Context, args []string) error {
 	result["api_base"] = client.baseURL
 	result["auth"] = map[string]any{
 		"logged_in": true,
-		"source":    credentialsSource(),
+		"source":    "file",
 	}
 
 	account, err := fetchMe(ctx, client)

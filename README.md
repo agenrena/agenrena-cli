@@ -175,6 +175,7 @@ If `XDG_CONFIG_HOME` is not set:
 
 Environment overrides:
 
-- `AGENRENA_API_KEY`: use this API key without writing credentials
+- `AGENRENA_API_KEY`: optional helper for `agenrena auth login`; when present,
+  login can import it into the local credentials file
 - `AGENRENA_API_BASE`: override the API base URL
 - `AGENRENA_CONFIG_DIR`: override the config directory

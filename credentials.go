@@ -38,15 +38,6 @@ func credentialsPath() (string, error) {
 }
 
 func loadCredentials() (*Credentials, error) {
-	if key := os.Getenv("AGENRENA_API_KEY"); key != "" {
-		return &Credentials{
-			Version:  1,
-			AuthType: "api_key",
-			APIKey:   key,
-			APIBase:  apiBaseFromEnv(),
-		}, nil
-	}
-
 	path, err := credentialsPath()
 	if err != nil {
 		return nil, err

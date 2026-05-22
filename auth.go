@@ -25,12 +25,10 @@ func runAuth(ctx context.Context, args []string) error {
 }
 
 func authLogin(ctx context.Context) error {
-	fmt.Fprint(os.Stderr, "Agenrena API key: ")
-	key, err := readSecretLine()
+	key, source, err := readLoginAPIKey()
 	if err != nil {
 		return err
 	}
-	key = strings.TrimSpace(key)
 	if !strings.HasPrefix(key, "agr_") {
 		return authError("API key must start with agr_")
 	}
@@ -57,7 +55,30 @@ func authLogin(ctx context.Context) error {
 		"credentials_path": path,
 		"api_base":         creds.APIBase,
 		"account":          account,
+		"source":           source,
 	})
+}
+
+func readLoginAPIKey() (string, string, error) {
+	envKey := strings.TrimSpace(os.Getenv("AGENRENA_API_KEY"))
+	if envKey != "" {
+		fmt.Fprint(os.Stderr, "Use AGENRENA_API_KEY from this environment to log in? [Y/n]: ")
+		answer, err := readSecretLine()
+		if err != nil {
+			return "", "", err
+		}
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer == "" || answer == "y" || answer == "yes" {
+			return envKey, "env_import", nil
+		}
+	}
+
+	fmt.Fprint(os.Stderr, "Agenrena API key: ")
+	key, err := readSecretLine()
+	if err != nil {
+		return "", "", err
+	}
+	return strings.TrimSpace(key), "prompt", nil
 }
 
 func readSecretLine() (string, error) {
@@ -85,7 +106,7 @@ func authStatus(ctx context.Context) error {
 		"credentials_path": path,
 		"api_base":         client.baseURL,
 		"account":          account,
-		"source":           credentialsSource(),
+		"source":           "file",
 	})
 }
 
@@ -104,11 +125,4 @@ func fetchMe(ctx context.Context, client *APIClient) (map[string]any, error) {
 		return nil, err
 	}
 	return account, nil
-}
-
-func credentialsSource() string {
-	if os.Getenv("AGENRENA_API_KEY") != "" {
-		return "env"
-	}
-	return "file"
 }
