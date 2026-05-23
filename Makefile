@@ -8,7 +8,7 @@ VERSION ?= $(shell sed -n 's/^[[:space:]]*cliVersion[[:space:]]*=[[:space:]]*"\(
 TAG ?= v$(VERSION)
 LDFLAGS := -s -w
 
-.PHONY: help version check test vet build clean clean-dist dist release release-check tag publish require-gh require-tag require-dist
+.PHONY: help version check test vet build clean clean-dist dist release release-check tag require-tag
 
 help:
 	@printf '%s\n' 'Agenrena CLI release helpers'
@@ -16,10 +16,9 @@ help:
 	@printf '%s\n' 'Common targets:'
 	@printf '%s\n' '  make check      Run tests and go vet'
 	@printf '%s\n' '  make build      Build local ./agenrena-cli'
-	@printf '%s\n' '  make dist       Build release assets into ./dist'
-	@printf '%s\n' '  make release    Validate release state, then build ./dist'
+	@printf '%s\n' '  make dist       Optional local cross-build smoke test'
+	@printf '%s\n' '  make release    Validate release state and print next steps'
 	@printf '%s\n' '  make tag        Create annotated git tag matching cliVersion'
-	@printf '%s\n' '  make publish    Create the GitHub release with ./dist assets'
 	@printf '%s\n' ''
 	@printf 'Current version: %s\n' '$(VERSION)'
 	@printf 'Release tag:     %s\n' '$(TAG)'
@@ -59,13 +58,14 @@ dist: check clean-dist
 	@printf '%s\n' 'Built release assets:'
 	@ls -lh ./$(DIST_DIR)
 
-release: release-check dist
+release: release-check
 	@printf '%s\n' ''
-	@printf 'Release assets are ready for %s.\n' '$(TAG)'
+	@printf 'Release state looks ready for %s.\n' '$(TAG)'
 	@printf '%s\n' 'Next steps:'
 	@printf '%s\n' '  make tag'
 	@printf '%s\n' '  git push origin $(TAG)'
-	@printf '%s\n' '  make publish'
+	@printf '%s\n' ''
+	@printf '%s\n' 'GitHub Actions should build and publish the release assets from the pushed tag.'
 
 release-check:
 	@test -n "$(VERSION)" || (echo "Could not read cliVersion from main.go" >&2; exit 1)
@@ -78,18 +78,5 @@ tag: release-check
 	git tag -a "$(TAG)" -m "$(TAG)"
 	@printf 'Created tag %s\n' '$(TAG)'
 
-publish: release-check require-gh require-tag require-dist
-	gh release create "$(TAG)" ./$(DIST_DIR)/$(BIN_NAME)-* ./$(DIST_DIR)/checksums.txt --title "$(TAG)" --notes "Agenrena CLI $(TAG)"
-
-require-gh:
-	@command -v gh >/dev/null 2>&1 || (echo "GitHub CLI is required for make publish." >&2; exit 1)
-
 require-tag:
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || (echo "Tag $(TAG) does not exist. Run make tag first." >&2; exit 1)
-
-require-dist:
-	@test -s ./$(DIST_DIR)/$(BIN_NAME)-darwin-arm64 || (echo "Missing dist assets. Run make dist first." >&2; exit 1)
-	@test -s ./$(DIST_DIR)/$(BIN_NAME)-darwin-amd64 || (echo "Missing dist assets. Run make dist first." >&2; exit 1)
-	@test -s ./$(DIST_DIR)/$(BIN_NAME)-linux-arm64 || (echo "Missing dist assets. Run make dist first." >&2; exit 1)
-	@test -s ./$(DIST_DIR)/$(BIN_NAME)-linux-amd64 || (echo "Missing dist assets. Run make dist first." >&2; exit 1)
-	@test -s ./$(DIST_DIR)/checksums.txt || (echo "Missing checksums.txt. Run make dist first." >&2; exit 1)

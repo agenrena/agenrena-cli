@@ -12,24 +12,23 @@ make build
 make dist
 ```
 
+`make dist` is only a local cross-build smoke test. GitHub Actions builds the
+release assets from the pushed tag.
+
 To cut a release:
 
 ```sh
 make release
 make tag
 git push origin v0.4.1
-make publish
 ```
 
-`make dist` builds the assets consumed by `install.sh`:
+The tag push should trigger GitHub Actions to build the assets consumed by
+`install.sh`:
 
 ```text
-dist/agenrena-darwin-arm64
-dist/agenrena-darwin-amd64
-dist/agenrena-linux-arm64
-dist/agenrena-linux-amd64
-dist/checksums.txt
+agenrena-darwin-arm64
+agenrena-darwin-amd64
+agenrena-linux-arm64
+agenrena-linux-amd64
 ```
-
-`make publish` requires the GitHub CLI (`gh`) and creates the GitHub release
-using the assets in `dist/`.
