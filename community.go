@@ -27,10 +27,12 @@ func runCommunityDrafts(ctx context.Context, args []string) error {
 		return communityDraftsList(ctx, args[1:])
 	case "get":
 		return communityDraftsGet(ctx, args[1:])
+	case "create":
+		return communityDraftsCreate(ctx, args[1:])
+	case "update":
+		return communityDraftsUpdate(ctx, args[1:])
 	case "add-image":
 		return communityDraftsAddImage(ctx, args[1:])
-	case "update-text":
-		return communityDraftsUpdateText(ctx, args[1:])
 	default:
 		return usageError(fmt.Sprintf("unknown community drafts command %q", args[0]))
 	}
@@ -157,21 +159,34 @@ func communityDraftsGet(ctx context.Context, args []string) error {
 	})
 }
 
-func communityDraftsUpdateText(ctx context.Context, args []string) error {
-	opts, err := parseUpdateTextArgs(args)
+func communityDraftsCreate(ctx context.Context, args []string) error {
+	opts, err := parseCreateDraftArgs(args)
 	if err != nil {
 		return err
 	}
-	textBytes, err := os.ReadFile(opts.textFile)
+
+	client, err := authenticatedClient()
 	if err != nil {
-		return wrapError("TEXT_FILE_READ_FAILED", "failed to read text file", err)
+		return err
 	}
-	if len(textBytes) > 20000 {
-		return &cliError{
-			Code:        "TEXT_FILE_TOO_LARGE",
-			Message:     "text file is unexpectedly large for a community draft",
-			Recoverable: true,
-		}
+
+	body := map[string]any{
+		"title": opts.title,
+		"text":  opts.text,
+	}
+	var created any
+	if err := client.post(ctx, "/community/drafts/", body, &created); err != nil {
+		return err
+	}
+	return writeOK(map[string]any{
+		"draft": created,
+	})
+}
+
+func communityDraftsUpdate(ctx context.Context, args []string) error {
+	opts, err := parseUpdateArgs(args)
+	if err != nil {
+		return err
 	}
 
 	client, err := authenticatedClient()
@@ -198,7 +213,7 @@ func communityDraftsUpdateText(ctx context.Context, args []string) error {
 
 	body := map[string]any{
 		"base_revision": int(revisionValue),
-		"text":          string(textBytes),
+		"text":          opts.text,
 	}
 	var updated any
 	if err := client.patch(ctx, fmt.Sprintf("/community/drafts/%s/", opts.draftID), body, &updated); err != nil {
@@ -242,9 +257,14 @@ func parseDraftIDArgs(args []string) (*draftIDOptions, error) {
 	return opts, nil
 }
 
-type updateTextOptions struct {
-	draftID  string
-	textFile string
+type createDraftOptions struct {
+	title string
+	text  string
+}
+
+type updateOptions struct {
+	draftID string
+	text    string
 }
 
 type addImageOptions struct {
@@ -263,8 +283,34 @@ type draftImageUploadTarget struct {
 	SortOrder          int    `json:"sort_order"`
 }
 
-func parseUpdateTextArgs(args []string) (*updateTextOptions, error) {
-	opts := &updateTextOptions{}
+func parseCreateDraftArgs(args []string) (*createDraftOptions, error) {
+	opts := &createDraftOptions{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--title":
+			i++
+			if i >= len(args) {
+				return nil, usageError("--title requires a value")
+			}
+			opts.title = args[i]
+		case "--text":
+			i++
+			if i >= len(args) {
+				return nil, usageError("--text requires a value")
+			}
+			opts.text = args[i]
+		default:
+			return nil, usageError(fmt.Sprintf("unknown option %q", args[i]))
+		}
+	}
+	if opts.title == "" {
+		return nil, usageError("--title is required")
+	}
+	return opts, nil
+}
+
+func parseUpdateArgs(args []string) (*updateOptions, error) {
+	opts := &updateOptions{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--draft-id":
@@ -273,12 +319,12 @@ func parseUpdateTextArgs(args []string) (*updateTextOptions, error) {
 				return nil, usageError("--draft-id requires a value")
 			}
 			opts.draftID = args[i]
-		case "--text-file":
+		case "--text":
 			i++
 			if i >= len(args) {
-				return nil, usageError("--text-file requires a path")
+				return nil, usageError("--text requires a value")
 			}
-			opts.textFile = args[i]
+			opts.text = args[i]
 		default:
 			return nil, usageError(fmt.Sprintf("unknown option %q", args[i]))
 		}
@@ -286,8 +332,8 @@ func parseUpdateTextArgs(args []string) (*updateTextOptions, error) {
 	if opts.draftID == "" {
 		return nil, usageError("--draft-id is required")
 	}
-	if opts.textFile == "" {
-		return nil, usageError("--text-file is required")
+	if opts.text == "" {
+		return nil, usageError("--text is required")
 	}
 	return opts, nil
 }

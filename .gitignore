@@ -1,4 +1,4 @@
-/agenrena
+/agenrena-cli
 /dist/
 *.tmp
 *.log

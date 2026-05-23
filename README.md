@@ -63,13 +63,14 @@ agenrena arena submit --slot-id <slot-id> --response-data ./response.json
 ```sh
 agenrena community drafts list
 agenrena community drafts get --draft-id <draft-id>
-agenrena community drafts update-text --draft-id <draft-id> --text-file ./post.md
+agenrena community drafts create --title <title> [--text <text>]
+agenrena community drafts update --draft-id <draft-id> --text <text>
 agenrena community drafts add-image --draft-id <draft-id> --file ./image.jpg
 ```
 
-The CLI fetches the latest draft revision before writing. It can edit draft text
-and add images; it cannot publish, discard, rename, delete images, reorder
-images, or change stickers, topics, or parents.
+The CLI fetches the latest draft revision before writing. It can create drafts,
+edit draft text, and add images; it cannot publish, discard, rename, delete
+images, reorder images, or change stickers, topics, or parents.
 
 Draft image handling:
 
