@@ -19,12 +19,11 @@ To cut a release:
 
 ```sh
 make release
-make tag
-git push origin v0.4.1
 ```
 
-The tag push should trigger GitHub Actions to build the assets consumed by
-`install.sh`:
+`make release` runs checks, verifies the working tree is clean, creates the
+`v<cliVersion>` tag if needed, pushes `main`, and pushes the tag. The tag push
+should trigger GitHub Actions to build the assets consumed by `install.sh`:
 
 ```text
 agenrena-darwin-arm64

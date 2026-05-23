@@ -8,7 +8,7 @@ VERSION ?= $(shell sed -n 's/^[[:space:]]*cliVersion[[:space:]]*=[[:space:]]*"\(
 TAG ?= v$(VERSION)
 LDFLAGS := -s -w
 
-.PHONY: help version check test vet build clean clean-dist dist release release-check tag require-tag
+.PHONY: help version check test vet build clean clean-dist dist release release-check tag ensure-tag push-release require-tag
 
 help:
 	@printf '%s\n' 'Agenrena CLI release helpers'
@@ -17,7 +17,7 @@ help:
 	@printf '%s\n' '  make check      Run tests and go vet'
 	@printf '%s\n' '  make build      Build local ./agenrena-cli'
 	@printf '%s\n' '  make dist       Optional local cross-build smoke test'
-	@printf '%s\n' '  make release    Validate release state and print next steps'
+	@printf '%s\n' '  make release    Run checks, tag, and push main + tag'
 	@printf '%s\n' '  make tag        Create annotated git tag matching cliVersion'
 	@printf '%s\n' ''
 	@printf 'Current version: %s\n' '$(VERSION)'
@@ -58,25 +58,38 @@ dist: check clean-dist
 	@printf '%s\n' 'Built release assets:'
 	@ls -lh ./$(DIST_DIR)
 
-release: release-check
+release:
+	$(MAKE) check
+	$(MAKE) release-check
+	$(MAKE) ensure-tag
+	$(MAKE) push-release
 	@printf '%s\n' ''
-	@printf 'Release state looks ready for %s.\n' '$(TAG)'
-	@printf '%s\n' 'Next steps:'
-	@printf '%s\n' '  make tag'
-	@printf '%s\n' '  git push origin $(TAG)'
-	@printf '%s\n' ''
-	@printf '%s\n' 'GitHub Actions should build and publish the release assets from the pushed tag.'
+	@printf 'Pushed main and %s. GitHub Actions should build and publish the release assets.\n' '$(TAG)'
 
 release-check:
 	@test -n "$(VERSION)" || (echo "Could not read cliVersion from main.go" >&2; exit 1)
 	@test "$(TAG)" = "v$(VERSION)" || (echo "TAG ($(TAG)) must match cliVersion ($(VERSION)); expected v$(VERSION)" >&2; exit 1)
+	@test "$$(git rev-parse --abbrev-ref HEAD)" = "main" || (echo "Releases must be cut from the main branch." >&2; exit 1)
 	@git diff --quiet || (echo "Working tree has unstaged changes; commit or stash before release." >&2; exit 1)
 	@git diff --cached --quiet || (echo "Working tree has staged changes; commit or unstage before release." >&2; exit 1)
 
-tag: release-check
-	@! git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || (echo "Tag $(TAG) already exists." >&2; exit 1)
-	git tag -a "$(TAG)" -m "$(TAG)"
-	@printf 'Created tag %s\n' '$(TAG)'
+tag: release-check ensure-tag
+
+ensure-tag:
+	@if git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null; then \
+		if test "$$(git rev-list -n 1 "$(TAG)")" != "$$(git rev-parse HEAD)"; then \
+			echo "Tag $(TAG) already exists but does not point at HEAD." >&2; \
+			exit 1; \
+		fi; \
+		echo "Tag $(TAG) already exists on HEAD."; \
+	else \
+		git tag -a "$(TAG)" -m "$(TAG)"; \
+		echo "Created tag $(TAG)"; \
+	fi
+
+push-release: release-check require-tag
+	git push origin main
+	git push origin "$(TAG)"
 
 require-tag:
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || (echo "Tag $(TAG) does not exist. Run make tag first." >&2; exit 1)
