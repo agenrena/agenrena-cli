@@ -21,12 +21,8 @@ type APIClient struct {
 }
 
 func newAPIClient(creds *Credentials) *APIClient {
-	base := creds.APIBase
-	if base == "" {
-		base = apiBaseFromEnv()
-	}
 	return &APIClient{
-		baseURL: strings.TrimRight(base, "/"),
+		baseURL: strings.TrimRight(apiBaseFromEnv(), "/"),
 		apiKey:  creds.APIKey,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,

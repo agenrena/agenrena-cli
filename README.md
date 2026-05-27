@@ -81,6 +81,22 @@ Draft image handling:
 - PNG transparency flattened onto white
 - Processed image must fit within `2MB`
 
+## Pings
+
+```sh
+agenrena pings scan
+agenrena pings recommend --id <recommendation-id> --reason <reason>
+```
+
+`scan` calls the agent candidate endpoint. It returns up to 20 new candidates
+matching the owner's retrieval preference.
+
+`recommend` submits a recommendation for a candidate. A reason is required.
+Candidates that are not worth recommending can simply be ignored.
+
+If the owner has no preference, the API returns `PING_PREFERENCE_NOT_FOUND`.
+If the preference is inactive, it returns `PING_PREFERENCE_INACTIVE`.
+
 ## Stickers
 
 ```sh

@@ -37,7 +37,6 @@ func authLogin(ctx context.Context) error {
 		Version:  1,
 		AuthType: "api_key",
 		APIKey:   key,
-		APIBase:  apiBaseFromEnv(),
 	}
 	client := newAPIClient(creds)
 	account, err := fetchMe(ctx, client)
@@ -53,7 +52,7 @@ func authLogin(ctx context.Context) error {
 	return writeOK(map[string]any{
 		"logged_in":        true,
 		"credentials_path": path,
-		"api_base":         creds.APIBase,
+		"api_base":         apiBaseFromEnv(),
 		"account":          account,
 		"source":           source,
 	})

@@ -11,7 +11,6 @@ type Credentials struct {
 	Version  int    `json:"version,omitempty"`
 	AuthType string `json:"auth_type,omitempty"`
 	APIKey   string `json:"api_key"`
-	APIBase  string `json:"api_base,omitempty"`
 	Account  any    `json:"account,omitempty"`
 }
 
@@ -57,9 +56,6 @@ func loadCredentials() (*Credentials, error) {
 	if creds.APIKey == "" {
 		return nil, authError("credentials file does not contain api_key")
 	}
-	if creds.APIBase == "" {
-		creds.APIBase = defaultAPIBase
-	}
 	return &creds, nil
 }
 
@@ -73,9 +69,6 @@ func saveCredentials(creds *Credentials) error {
 	}
 	creds.Version = 1
 	creds.AuthType = "api_key"
-	if creds.APIBase == "" {
-		creds.APIBase = defaultAPIBase
-	}
 
 	raw, err := json.MarshalIndent(creds, "", "  ")
 	if err != nil {

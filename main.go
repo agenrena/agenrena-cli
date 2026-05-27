@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.4.3"
+	cliVersion     = "0.4.5"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -32,6 +32,8 @@ func run(ctx context.Context, args []string) error {
 		return runCommunity(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
+	case "pings":
+		return runPings(ctx, args[1:])
 	case "stickers":
 		return runStickers(ctx, args[1:])
 	case "themes":
@@ -65,6 +67,8 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena community drafts create --title <title> [--text <text>]")
 	fmt.Fprintln(out, "  agenrena community drafts update --draft-id <id> --text <text>")
 	fmt.Fprintln(out, "  agenrena community drafts add-image --draft-id <id> --file <path>")
+	fmt.Fprintln(out, "  agenrena pings scan")
+	fmt.Fprintln(out, "  agenrena pings recommend --id <id> --reason <reason>")
 	fmt.Fprintln(out, "  agenrena stickers packs")
 	fmt.Fprintln(out, "  agenrena stickers upload --pack-id <id> --file <path> [--keyword <keyword>]")
 	fmt.Fprintln(out, "  agenrena themes card drafts")
