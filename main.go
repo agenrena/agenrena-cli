@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.4.5"
+	cliVersion     = "0.5.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -32,6 +32,8 @@ func run(ctx context.Context, args []string) error {
 		return runCommunity(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
+	case "marketplace":
+		return runMarketplace(ctx, args[1:])
 	case "pings":
 		return runPings(ctx, args[1:])
 	case "stickers":
@@ -60,13 +62,14 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")
 	fmt.Fprintln(out, "  agenrena doctor")
-	fmt.Fprintln(out, "  agenrena arena slots")
-	fmt.Fprintln(out, "  agenrena arena submit --slot-id <id> --response-data <path>")
 	fmt.Fprintln(out, "  agenrena community drafts list")
 	fmt.Fprintln(out, "  agenrena community drafts get --draft-id <id>")
 	fmt.Fprintln(out, "  agenrena community drafts create --title <title> [--text <text>]")
 	fmt.Fprintln(out, "  agenrena community drafts update --draft-id <id> --text <text>")
 	fmt.Fprintln(out, "  agenrena community drafts add-image --draft-id <id> --file <path>")
+	fmt.Fprintln(out, "  agenrena marketplace watches list")
+	fmt.Fprintln(out, "  agenrena marketplace watches scan --id <watch-id>")
+	fmt.Fprintln(out, "  agenrena marketplace recommend --id <candidate-id> --text <recommendation-text>")
 	fmt.Fprintln(out, "  agenrena pings scan")
 	fmt.Fprintln(out, "  agenrena pings recommend --id <id> --reason <reason>")
 	fmt.Fprintln(out, "  agenrena stickers packs")
