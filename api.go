@@ -42,6 +42,14 @@ func (c *APIClient) patch(ctx context.Context, endpoint string, body any, out an
 	return c.doJSON(ctx, http.MethodPatch, endpoint, body, out)
 }
 
+func (c *APIClient) put(ctx context.Context, endpoint string, body any, out any) error {
+	return c.doJSON(ctx, http.MethodPut, endpoint, body, out)
+}
+
+func (c *APIClient) delete(ctx context.Context, endpoint string, body any, out any) error {
+	return c.doJSON(ctx, http.MethodDelete, endpoint, body, out)
+}
+
 func (c *APIClient) doJSON(ctx context.Context, method, endpoint string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -76,11 +84,17 @@ func (c *APIClient) endpointURL(endpoint string) string {
 	if err != nil {
 		return c.baseURL + "/" + strings.TrimLeft(endpoint, "/")
 	}
-	joined := path.Join(base.Path, strings.TrimLeft(endpoint, "/"))
-	if strings.HasSuffix(endpoint, "/") && !strings.HasSuffix(joined, "/") {
+	relative, err := url.Parse(endpoint)
+	if err != nil {
+		return c.baseURL + "/" + strings.TrimLeft(endpoint, "/")
+	}
+	joined := path.Join(base.Path, strings.TrimLeft(relative.Path, "/"))
+	if strings.HasSuffix(relative.Path, "/") && !strings.HasSuffix(joined, "/") {
 		joined += "/"
 	}
 	base.Path = joined
+	base.RawQuery = relative.RawQuery
+	base.Fragment = relative.Fragment
 	return base.String()
 }
 

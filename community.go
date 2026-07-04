@@ -53,25 +53,8 @@ func communityDraftsAddImage(ctx context.Context, args []string) error {
 		return err
 	}
 
-	draft, err := fetchCommunityDraft(ctx, client, opts.draftID)
-	if err != nil {
-		return err
-	}
-	revisionValue, ok := numberFromMap(draft, "revision")
-	if !ok {
-		return apiError("DRAFT_RESPONSE_INVALID", "draft detail did not include revision", false)
-	}
-	statusValue, _ := stringFromMap(draft, "status")
-	if statusValue != "" && statusValue != "draft" {
-		return &cliError{
-			Code:        "POST_DRAFT_NOT_EDITABLE",
-			Message:     fmt.Sprintf("draft status is %q, not draft", statusValue),
-			Recoverable: true,
-		}
-	}
-
 	body := map[string]any{
-		"base_revision": int(revisionValue),
+		"base_revision": *opts.baseRevision,
 		"images": []map[string]any{
 			{
 				"width":            prepared.Width,
@@ -118,7 +101,7 @@ func communityDraftsAddImage(ctx context.Context, args []string) error {
 			"max_long_edge":       draftImageMaxLongEdge,
 			"thumbnail_long_edge": draftThumbMaxLongEdge,
 		},
-		"base_revision": int(revisionValue),
+		"base_revision": *opts.baseRevision,
 	})
 }
 
@@ -194,25 +177,8 @@ func communityDraftsUpdate(ctx context.Context, args []string) error {
 		return err
 	}
 
-	draft, err := fetchCommunityDraft(ctx, client, opts.draftID)
-	if err != nil {
-		return err
-	}
-	revisionValue, ok := numberFromMap(draft, "revision")
-	if !ok {
-		return apiError("DRAFT_RESPONSE_INVALID", "draft detail did not include revision", false)
-	}
-	statusValue, _ := stringFromMap(draft, "status")
-	if statusValue != "" && statusValue != "draft" {
-		return &cliError{
-			Code:        "POST_DRAFT_NOT_EDITABLE",
-			Message:     fmt.Sprintf("draft status is %q, not draft", statusValue),
-			Recoverable: true,
-		}
-	}
-
 	body := map[string]any{
-		"base_revision": int(revisionValue),
+		"base_revision": *opts.baseRevision,
 		"text":          opts.text,
 	}
 	var updated any
@@ -221,16 +187,8 @@ func communityDraftsUpdate(ctx context.Context, args []string) error {
 	}
 	return writeOK(map[string]any{
 		"draft":         updated,
-		"base_revision": int(revisionValue),
+		"base_revision": *opts.baseRevision,
 	})
-}
-
-func fetchCommunityDraft(ctx context.Context, client *APIClient, draftID string) (map[string]any, error) {
-	var draft map[string]any
-	if err := client.get(ctx, fmt.Sprintf("/community/drafts/%s/", draftID), &draft); err != nil {
-		return nil, err
-	}
-	return draft, nil
 }
 
 type draftIDOptions struct {
@@ -263,13 +221,15 @@ type createDraftOptions struct {
 }
 
 type updateOptions struct {
-	draftID string
-	text    string
+	draftID      string
+	baseRevision *int
+	text         string
 }
 
 type addImageOptions struct {
-	draftID string
-	file    string
+	draftID      string
+	baseRevision *int
+	file         string
 }
 
 type draftImagePresignResponse struct {
@@ -319,6 +279,16 @@ func parseUpdateArgs(args []string) (*updateOptions, error) {
 				return nil, usageError("--draft-id requires a value")
 			}
 			opts.draftID = args[i]
+		case "--base-revision":
+			i++
+			if i >= len(args) {
+				return nil, usageError("--base-revision requires a value")
+			}
+			parsed, err := parseIntOption("--base-revision", args[i], 0)
+			if err != nil {
+				return nil, err
+			}
+			opts.baseRevision = &parsed
 		case "--text":
 			i++
 			if i >= len(args) {
@@ -331,6 +301,9 @@ func parseUpdateArgs(args []string) (*updateOptions, error) {
 	}
 	if opts.draftID == "" {
 		return nil, usageError("--draft-id is required")
+	}
+	if opts.baseRevision == nil {
+		return nil, usageError("--base-revision is required")
 	}
 	if opts.text == "" {
 		return nil, usageError("--text is required")
@@ -348,6 +321,16 @@ func parseAddImageArgs(args []string) (*addImageOptions, error) {
 				return nil, usageError("--draft-id requires a value")
 			}
 			opts.draftID = args[i]
+		case "--base-revision":
+			i++
+			if i >= len(args) {
+				return nil, usageError("--base-revision requires a value")
+			}
+			parsed, err := parseIntOption("--base-revision", args[i], 0)
+			if err != nil {
+				return nil, err
+			}
+			opts.baseRevision = &parsed
 		case "--file":
 			i++
 			if i >= len(args) {
@@ -360,6 +343,9 @@ func parseAddImageArgs(args []string) (*addImageOptions, error) {
 	}
 	if opts.draftID == "" {
 		return nil, usageError("--draft-id is required")
+	}
+	if opts.baseRevision == nil {
+		return nil, usageError("--base-revision is required")
 	}
 	if opts.file == "" {
 		return nil, usageError("--file is required")
@@ -376,28 +362,4 @@ func authenticatedClient() (*APIClient, error) {
 		return nil, err
 	}
 	return newAPIClient(creds), nil
-}
-
-func numberFromMap(values map[string]any, key string) (float64, bool) {
-	value, ok := values[key]
-	if !ok {
-		return 0, false
-	}
-	switch typed := value.(type) {
-	case float64:
-		return typed, true
-	case int:
-		return float64(typed), true
-	default:
-		return 0, false
-	}
-}
-
-func stringFromMap(values map[string]any, key string) (string, bool) {
-	value, ok := values[key]
-	if !ok {
-		return "", false
-	}
-	typed, ok := value.(string)
-	return typed, ok
 }
