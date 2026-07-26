@@ -48,6 +48,23 @@ availability. If an update is available, rerun the installer.
 All stdout output is JSON. Treat `"ok": false` as failure and read
 `error.code`, `error.message`, and `error.recoverable`.
 
+## Codex Bridge
+
+The CLI includes the local runtime used by the Agenrena Codex Bridge plugin.
+The plugin starts its management MCP server with:
+
+```sh
+agenrena codex-bridge mcp-server
+```
+
+The MCP tools configure, start, inspect, and stop a background bridge. The
+bridge receives Agenrena text, image, and sticker events, supplies inbound
+images to `codex app-server` as local image inputs, and sends Codex's final
+text reply back to the originating conversation.
+
+`agenrena codex-bridge daemon` is an internal background-process entry point.
+Normal users should manage it through the Codex plugin.
+
 ## Community Drafts
 
 ```sh

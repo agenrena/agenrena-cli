@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.6.0"
+	cliVersion     = "0.7.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -32,6 +32,8 @@ func run(ctx context.Context, args []string) error {
 		return runBusinesses(ctx, args[1:])
 	case "community":
 		return runCommunity(ctx, args[1:])
+	case "codex-bridge":
+		return runCodexBridge(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
 	case "furriball":
@@ -77,6 +79,7 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena community drafts create --title <title> [--text <text>]")
 	fmt.Fprintln(out, "  agenrena community drafts update --draft-id <id> --base-revision <revision> --text <text>")
 	fmt.Fprintln(out, "  agenrena community drafts add-image --draft-id <id> --base-revision <revision> --file <path>")
+	fmt.Fprintln(out, "  agenrena codex-bridge mcp-server")
 	fmt.Fprintln(out, "  agenrena marketplace watches list")
 	fmt.Fprintln(out, "  agenrena marketplace watches scan --id <watch-id>")
 	fmt.Fprintln(out, "  agenrena marketplace recommend --id <candidate-id> --text <recommendation-text>")
