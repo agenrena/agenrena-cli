@@ -101,27 +101,10 @@ func (c *APIClient) endpointURL(endpoint string) string {
 func decodeAPIResponse(resp *http.Response, out any) error {
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		code := fmt.Sprintf("HTTP_%d", resp.StatusCode)
-		message := strings.TrimSpace(string(raw))
-		if message == "" {
-			message = resp.Status
+		if readErr != nil {
+			return readErr
 		}
-		var apiBody struct {
-			Code   string `json:"code"`
-			Detail string `json:"detail"`
-			Error  string `json:"error"`
-		}
-		if json.Unmarshal(raw, &apiBody) == nil {
-			if apiBody.Code != "" {
-				code = apiBody.Code
-			}
-			if apiBody.Detail != "" {
-				message = apiBody.Detail
-			} else if apiBody.Error != "" {
-				message = apiBody.Error
-			}
-		}
-		return apiError(code, message, resp.StatusCode == 409 || resp.StatusCode == 429 || resp.StatusCode >= 500)
+		return decodeAPIError(resp, raw)
 	}
 	if readErr != nil {
 		return readErr
@@ -133,6 +116,69 @@ func decodeAPIResponse(resp *http.Response, out any) error {
 		return wrapError("API_RESPONSE_INVALID", "failed to parse API response", err)
 	}
 	return nil
+}
+
+func decodeAPIError(resp *http.Response, raw []byte) error {
+	code := fmt.Sprintf("HTTP_%d", resp.StatusCode)
+	message := strings.TrimSpace(string(raw))
+	if message == "" {
+		message = resp.Status
+	}
+
+	var params any
+	var fields any
+	var apiBody struct {
+		Code    string          `json:"code"`
+		Detail  string          `json:"detail"`
+		Message string          `json:"message"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(raw, &apiBody) == nil {
+		if apiBody.Code != "" {
+			code = apiBody.Code
+		}
+		if apiBody.Detail != "" {
+			message = apiBody.Detail
+		} else if apiBody.Message != "" {
+			message = apiBody.Message
+		}
+
+		if len(apiBody.Error) > 0 && string(apiBody.Error) != "null" {
+			var nested struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+				Params  any    `json:"params"`
+				Fields  any    `json:"fields"`
+			}
+			if json.Unmarshal(apiBody.Error, &nested) == nil {
+				if nested.Code != "" {
+					code = nested.Code
+				}
+				if nested.Message != "" {
+					message = nested.Message
+				} else if nested.Code != "" && apiBody.Detail == "" && apiBody.Message == "" {
+					message = nested.Code
+				}
+				params = nested.Params
+				fields = nested.Fields
+			} else {
+				var legacyMessage string
+				if json.Unmarshal(apiBody.Error, &legacyMessage) == nil && legacyMessage != "" {
+					message = legacyMessage
+				}
+			}
+		} else if apiBody.Code != "" && apiBody.Detail == "" && apiBody.Message == "" {
+			message = apiBody.Code
+		}
+	}
+
+	return &cliError{
+		Code:        code,
+		Message:     message,
+		Recoverable: resp.StatusCode == 409 || resp.StatusCode == 429 || resp.StatusCode >= 500,
+		Params:      params,
+		Fields:      fields,
+	}
 }
 
 func uploadMultipart(ctx context.Context, uploadURL string, fields map[string]string, fileField, fileName, contentType string, content []byte) error {

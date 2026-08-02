@@ -20,6 +20,8 @@ type errorEnvelope struct {
 		Code        string `json:"code"`
 		Message     string `json:"message"`
 		Recoverable bool   `json:"recoverable"`
+		Params      any    `json:"params,omitempty"`
+		Fields      any    `json:"fields,omitempty"`
 	} `json:"error"`
 }
 
@@ -32,6 +34,14 @@ func writeOKWithWarnings(data any, warnings []string) error {
 }
 
 func writeErrorAndExit(err error) {
+	env := buildErrorEnvelope(err)
+	if encErr := writeJSON(os.Stdout, env); encErr != nil {
+		fmt.Fprintln(os.Stderr, encErr)
+	}
+	os.Exit(1)
+}
+
+func buildErrorEnvelope(err error) errorEnvelope {
 	var ce *cliError
 	if !errors.As(err, &ce) {
 		ce = &cliError{Code: "INTERNAL_ERROR", Message: err.Error()}
@@ -41,10 +51,9 @@ func writeErrorAndExit(err error) {
 	env.Error.Code = ce.Code
 	env.Error.Message = ce.Message
 	env.Error.Recoverable = ce.Recoverable
-	if encErr := writeJSON(os.Stdout, env); encErr != nil {
-		fmt.Fprintln(os.Stderr, encErr)
-	}
-	os.Exit(1)
+	env.Error.Params = ce.Params
+	env.Error.Fields = ce.Fields
+	return env
 }
 
 func writeJSON(out *os.File, value any) error {

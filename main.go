@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.7.0"
+	cliVersion     = "0.8.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -26,8 +26,6 @@ func run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "auth":
 		return runAuth(ctx, args[1:])
-	case "arena":
-		return runArena(ctx, args[1:])
 	case "businesses":
 		return runBusinesses(ctx, args[1:])
 	case "community":
@@ -36,10 +34,10 @@ func run(ctx context.Context, args []string) error {
 		return runCodexBridge(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
-	case "furriball":
-		return runFurriBall(ctx, args[1:])
 	case "marketplace":
 		return runMarketplace(ctx, args[1:])
+	case "memories":
+		return runMemories(ctx, args[1:])
 	case "pings":
 		return runPings(ctx, args[1:])
 	case "plans":
@@ -70,7 +68,6 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")
 	fmt.Fprintln(out, "  agenrena doctor")
-	fmt.Fprintln(out, "  agenrena furriball pets")
 	fmt.Fprintln(out, "  agenrena businesses offerings search-options --country-code <code> [--state-code <code>]")
 	fmt.Fprintln(out, "  agenrena businesses offerings search --category <category> [options]")
 	fmt.Fprintln(out, "  agenrena businesses offerings list --identity-id <uuid>")
@@ -83,6 +80,10 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena marketplace watches list")
 	fmt.Fprintln(out, "  agenrena marketplace watches scan --id <watch-id>")
 	fmt.Fprintln(out, "  agenrena marketplace recommend --id <candidate-id> --text <recommendation-text>")
+	fmt.Fprintln(out, "  agenrena memories create --json <json>")
+	fmt.Fprintln(out, "  agenrena memories search --keyword <keyword> [--keyword <keyword> ...] [--cursor <cursor>]")
+	fmt.Fprintln(out, "  agenrena memories read --memory-id <uuid> [--memory-id <uuid> ...]")
+	fmt.Fprintln(out, "  agenrena memories forget --memory-id <uuid>")
 	fmt.Fprintln(out, "  agenrena pings scan")
 	fmt.Fprintln(out, "  agenrena pings recommend --id <id> --reason <reason>")
 	fmt.Fprintln(out, "  agenrena plans create [--json <json>]")

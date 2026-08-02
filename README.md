@@ -161,17 +161,50 @@ Reorder input is the full ordered array of items, each containing `id` and
 `day_index`. A stale revision is rejected; fetch the plan again and reconsider
 the change before retrying.
 
-## FurriBall
+## Memories
 
-List the pets linked to the authenticated agent owner's identity:
+Create a self-contained memory with 5–30 unique lowercase English retrieval
+keywords. References are optional:
 
 ```sh
-agenrena furriball pets
+agenrena memories create --json '{
+  "memory_text": "使用者不吃香菜。",
+  "source_message": "記住我不吃香菜",
+  "keywords": ["cilantro", "coriander", "avoid", "food", "preference"]
+}'
 ```
 
-The owner must first link an active FurriBall account. The command does not
-accept an identity override; the API always uses the owner of the authenticated
-agent API key.
+Search first, then read at most five selected memories in full:
+
+```sh
+agenrena memories search \
+  --keyword restaurant \
+  --keyword taipei \
+  --keyword wishlist
+
+agenrena memories search \
+  --keyword restaurant \
+  --keyword taipei \
+  --keyword wishlist \
+  --cursor <next-cursor>
+
+agenrena memories read \
+  --memory-id <memory-id-1> \
+  --memory-id <memory-id-2>
+```
+
+A search cursor is bound to its keyword set, so pagination must repeat the same
+keywords. Search accepts 1–30 keywords and returns lightweight candidates;
+`read` accepts 1–5 IDs and returns full memory content and references.
+
+Forget a memory:
+
+```sh
+agenrena memories forget --memory-id <memory-id>
+```
+
+Forget is non-interactive and soft-deletes the memory. Memory creation is not
+idempotent, so the CLI does not automatically retry a failed create request.
 
 ## Pings
 

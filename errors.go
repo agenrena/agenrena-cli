@@ -6,6 +6,8 @@ type cliError struct {
 	Code        string
 	Message     string
 	Recoverable bool
+	Params      any
+	Fields      any
 }
 
 func (e *cliError) Error() string {
