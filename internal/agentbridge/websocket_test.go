@@ -1,4 +1,4 @@
-package codexbridge
+package agentbridge
 
 import (
 	"bufio"
@@ -11,9 +11,7 @@ import (
 
 func TestWebSocketHandlesPingAndFragmentedText(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	socket := &WebSocketConnection{
-		conn: clientConn, reader: bufio.NewReader(clientConn), maxSize: 1024,
-	}
+	socket := NewWebSocketConnection(clientConn, bufio.NewReader(clientConn), 1024)
 	defer socket.Close()
 	defer serverConn.Close()
 	go func() {

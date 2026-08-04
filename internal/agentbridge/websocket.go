@@ -1,4 +1,4 @@
-package codexbridge
+package agentbridge
 
 import (
 	"bufio"
@@ -21,6 +21,8 @@ import (
 
 const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+var noDeadline time.Time
+
 type WebSocketConnection struct {
 	conn           net.Conn
 	reader         *bufio.Reader
@@ -29,9 +31,10 @@ type WebSocketConnection struct {
 	fragmentData   []byte
 	closeSent      bool
 	writeMu        sync.Mutex
+	closeMu        sync.Mutex
 }
 
-func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketConnection, error) {
+func DialWebSocket(ctx context.Context, rawURL string, maxSize int, userAgent string) (*WebSocketConnection, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "ws" && parsed.Scheme != "wss") {
 		return nil, fmt.Errorf("WebSocket URL must be an absolute ws:// or wss:// URL")
@@ -49,7 +52,13 @@ func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketC
 	dialer := &net.Dialer{}
 	var conn net.Conn
 	if secure {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: parsed.Hostname(), MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", address)
+		conn, err = (&tls.Dialer{
+			NetDialer: dialer,
+			Config: &tls.Config{
+				ServerName: parsed.Hostname(),
+				MinVersion: tls.VersionTLS12,
+			},
+		}).DialContext(ctx, "tcp", address)
 	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", address)
 	}
@@ -62,6 +71,7 @@ func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketC
 			_ = conn.Close()
 		}
 	}()
+
 	var keyBytes [16]byte
 	if _, err := rand.Read(keyBytes[:]); err != nil {
 		return nil, err
@@ -84,7 +94,13 @@ func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketC
 	} else if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
-	request := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\nUser-Agent: agenrena-codex-bridge/%s\r\n\r\n", path, host, key, Version)
+	if strings.TrimSpace(userAgent) == "" {
+		userAgent = "agenrena-agent-bridge"
+	}
+	request := fmt.Sprintf(
+		"GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\nUser-Agent: %s\r\n\r\n",
+		path, host, key, userAgent,
+	)
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
@@ -99,7 +115,7 @@ func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketC
 	if response.status != 101 {
 		return nil, fmt.Errorf("WebSocket server rejected the upgrade with HTTP %d", response.status)
 	}
-	if strings.ToLower(response.headers["upgrade"]) != "websocket" || !headerToken(response.headers["connection"], "upgrade") {
+	if !strings.EqualFold(response.headers["upgrade"], "websocket") || !headerToken(response.headers["connection"], "upgrade") {
 		return nil, fmt.Errorf("WebSocket upgrade response is missing required headers")
 	}
 	sum := sha1.Sum([]byte(key + websocketGUID))
@@ -108,10 +124,15 @@ func DialWebSocket(ctx context.Context, rawURL string, maxSize int) (*WebSocketC
 	}
 	_ = conn.SetDeadline(noDeadline)
 	success = true
-	return &WebSocketConnection{conn: conn, reader: reader, maxSize: maxSize}, nil
+	return NewWebSocketConnection(conn, reader, maxSize), nil
 }
 
-var noDeadline = func() (value time.Time) { return }()
+func NewWebSocketConnection(conn net.Conn, reader *bufio.Reader, maxSize int) *WebSocketConnection {
+	if reader == nil {
+		reader = bufio.NewReader(conn)
+	}
+	return &WebSocketConnection{conn: conn, reader: reader, maxSize: maxSize}
+}
 
 type upgradeResponse struct {
 	status  int
@@ -153,7 +174,8 @@ func readHTTPUpgrade(reader *bufio.Reader) (upgradeResponse, error) {
 		if len(parts) != 2 {
 			return upgradeResponse{}, fmt.Errorf("invalid WebSocket HTTP header")
 		}
-		name, value := strings.ToLower(strings.TrimSpace(parts[0])), strings.TrimSpace(parts[1])
+		name := strings.ToLower(strings.TrimSpace(parts[0]))
+		value := strings.TrimSpace(parts[1])
 		if headers[name] != "" {
 			headers[name] += "," + value
 		} else {
@@ -190,10 +212,12 @@ func (socket *WebSocketConnection) ReceiveEvent(ctx context.Context) ([]byte, er
 		if len(payload) == 1 {
 			return nil, fmt.Errorf("WebSocket close frame has an invalid payload")
 		}
+		socket.closeMu.Lock()
 		if !socket.closeSent {
 			_ = socket.sendFrame(0x8, payload)
 			socket.closeSent = true
 		}
+		socket.closeMu.Unlock()
 		return nil, fmt.Errorf("WebSocket peer closed the connection")
 	case 0x9:
 		return nil, socket.sendFrame(0xA, payload)
@@ -307,16 +331,23 @@ func (socket *WebSocketConnection) sendFrame(opcode byte, payload []byte) error 
 func (socket *WebSocketConnection) Ping(ctx context.Context) error {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = socket.conn.SetWriteDeadline(deadline)
+	} else {
+		_ = socket.conn.SetWriteDeadline(noDeadline)
 	}
 	var probe [4]byte
-	_, _ = rand.Read(probe[:])
+	if _, err := rand.Read(probe[:]); err != nil {
+		return err
+	}
 	return socket.sendFrame(0x9, probe[:])
 }
 
 func (socket *WebSocketConnection) Close() error {
+	socket.closeMu.Lock()
 	if !socket.closeSent {
+		_ = socket.conn.SetWriteDeadline(time.Now().Add(time.Second))
 		_ = socket.sendFrame(0x8, []byte{0x03, 0xe8})
 		socket.closeSent = true
 	}
+	socket.closeMu.Unlock()
 	return socket.conn.Close()
 }

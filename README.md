@@ -45,25 +45,32 @@ agenrena doctor
 `doctor` checks CLI health, authentication, API reachability, and update
 availability. If an update is available, rerun the installer.
 
-All stdout output is JSON. Treat `"ok": false` as failure and read
-`error.code`, `error.message`, and `error.recoverable`.
+All stdout output is JSON. For ordinary one-shot commands, treat `"ok": false`
+as failure and read `error.code`, `error.message`, and `error.recoverable`.
 
-## Codex Bridge
+## Agent Bridge
 
-The CLI includes the local runtime used by the Agenrena Codex Bridge plugin.
-The plugin starts its management MCP server with:
+Agent plugins can use the CLI as a shared authenticated transport instead of
+implementing Agenrena WebSocket, REST, retry, and image handling themselves:
 
 ```sh
-agenrena codex-bridge mcp-server
+agenrena agent bridge --stdio
 ```
 
-The MCP tools configure, start, inspect, and stop a background bridge. The
-bridge receives Agenrena text, image, and sticker events, supplies inbound
-images to `codex app-server` as local image inputs, and sends Codex's final
-text reply back to the originating conversation.
+Each plugin starts one child process and communicates with it using JSON-RPC
+2.0 over JSON Lines. Requests go to stdin, responses and inbound-message
+notifications come from stdout, and logs stay on stderr. The bridge loads the
+credential created by `agenrena auth login`, connects and reconnects the
+Agenrena WebSocket, normalizes text/image/sticker events, materializes inbound
+images as local files, and sends text or images back through the REST API.
 
-`agenrena codex-bridge daemon` is an internal background-process entry point.
-Normal users should manage it through the Codex plugin.
+The versioned plugin contract, lifecycle, route format, limits, errors, and
+examples are documented in
+[`docs/agent-bridge-stdio.md`](docs/agent-bridge-stdio.md).
+
+Codex-specific app-server, thread, sandbox, approval, workspace, and process
+management live in the Agenrena Codex plugin. The CLI intentionally exposes no
+`codex-bridge` command.
 
 ## Community Drafts
 

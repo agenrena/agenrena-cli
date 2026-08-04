@@ -2,6 +2,19 @@ package main
 
 import "fmt"
 
+type silentExitError struct {
+	err error
+}
+
+func (e *silentExitError) Error() string {
+	if e.err == nil {
+		return "command failed"
+	}
+	return e.err.Error()
+}
+
+func (e *silentExitError) Unwrap() error { return e.err }
+
 type cliError struct {
 	Code        string
 	Message     string

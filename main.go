@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 )
 
 const (
-	cliVersion     = "0.8.0"
+	cliVersion     = "0.9.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
 func main() {
 	ctx := context.Background()
 	if err := run(ctx, os.Args[1:]); err != nil {
+		var silent *silentExitError
+		if errors.As(err, &silent) {
+			fmt.Fprintln(os.Stderr, silent)
+			os.Exit(1)
+		}
 		writeErrorAndExit(err)
 	}
 }
@@ -24,14 +30,14 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	switch args[0] {
+	case "agent":
+		return runAgent(ctx, args[1:])
 	case "auth":
 		return runAuth(ctx, args[1:])
 	case "businesses":
 		return runBusinesses(ctx, args[1:])
 	case "community":
 		return runCommunity(ctx, args[1:])
-	case "codex-bridge":
-		return runCodexBridge(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
 	case "marketplace":
@@ -64,6 +70,7 @@ func run(ctx context.Context, args []string) error {
 
 func printUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
+	fmt.Fprintln(out, "  agenrena agent bridge --stdio")
 	fmt.Fprintln(out, "  agenrena auth login")
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")
@@ -76,7 +83,6 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena community drafts create --title <title> [--text <text>]")
 	fmt.Fprintln(out, "  agenrena community drafts update --draft-id <id> --base-revision <revision> --text <text>")
 	fmt.Fprintln(out, "  agenrena community drafts add-image --draft-id <id> --base-revision <revision> --file <path>")
-	fmt.Fprintln(out, "  agenrena codex-bridge mcp-server")
 	fmt.Fprintln(out, "  agenrena marketplace watches list")
 	fmt.Fprintln(out, "  agenrena marketplace watches scan --id <watch-id>")
 	fmt.Fprintln(out, "  agenrena marketplace recommend --id <candidate-id> --text <recommendation-text>")
