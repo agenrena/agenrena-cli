@@ -43,6 +43,7 @@ type ServerCapabilities struct {
 	InboundMedia  bool     `json:"inboundMedia"`
 	OutboundMedia bool     `json:"outboundMedia"`
 	MessageTypes  []string `json:"messageTypes"`
+	Handoff       bool     `json:"handoff"`
 }
 
 type InitializeResult struct {
@@ -112,6 +113,15 @@ type SendResult struct {
 	MessageID       string   `json:"messageId"`
 	MessageIDs      []string `json:"messageIds,omitempty"`
 	ClientMessageID string   `json:"clientMessageId"`
+}
+
+type HandoffParams struct {
+	Route string `json:"route"`
+}
+
+type HandoffResult struct {
+	Responder  string `json:"responder"`
+	SwitchedAt string `json:"switchedAt,omitempty"`
 }
 
 type Event struct {

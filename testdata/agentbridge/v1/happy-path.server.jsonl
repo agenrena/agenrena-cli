@@ -1,7 +1,8 @@
 {"jsonrpc":"2.0","method":"bridge/status","params":{"state":"connecting"}}
 {"jsonrpc":"2.0","method":"bridge/status","params":{"state":"connected"}}
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"]}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true}}}
 {"jsonrpc":"2.0","method":"messages/received","params":{"id":"msg_123","route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0","messageType":"text","sender":{"id":"user_123","name":"Kai"},"text":"Hello","media":[],"replyTo":null,"context":[],"createdAt":"2026-08-03T10:30:00Z"}}
 {"jsonrpc":"2.0","id":2,"result":{"messageId":"msg_456","clientMessageId":"hermes-550e8400-e29b-41d4-a716-446655440000"}}
+{"jsonrpc":"2.0","id":3,"result":{"responder":"human","switchedAt":"2026-08-03T10:31:00Z"}}
 {"jsonrpc":"2.0","method":"bridge/status","params":{"state":"stopping"}}
-{"jsonrpc":"2.0","id":3,"result":{"state":"stopped"}}
+{"jsonrpc":"2.0","id":4,"result":{"state":"stopped"}}

@@ -155,6 +155,7 @@ func (service *Service) Initialize(ctx context.Context, params InitializeParams,
 		Capabilities: ServerCapabilities{
 			InboundMedia: true, OutboundMedia: true,
 			MessageTypes: []string{"text", "image", "sticker"},
+			Handoff:      true,
 		},
 		Warnings: warnings,
 	}, nil
@@ -169,6 +170,17 @@ func (service *Service) Send(ctx context.Context, params SendParams) (SendResult
 		return SendResult{}, bridgeError("NOT_INITIALIZED", "bridge is not initialized", false)
 	}
 	return apiClient.SendMessage(ctx, params)
+}
+
+func (service *Service) Handoff(ctx context.Context, params HandoffParams) (HandoffResult, error) {
+	service.mu.Lock()
+	apiClient := service.api
+	initialized := service.initialized && !service.closed
+	service.mu.Unlock()
+	if !initialized || apiClient == nil {
+		return HandoffResult{}, bridgeError("NOT_INITIALIZED", "bridge is not initialized", false)
+	}
+	return apiClient.Handoff(ctx, params)
 }
 
 func (service *Service) Fatal() <-chan *RPCError { return service.fatal }

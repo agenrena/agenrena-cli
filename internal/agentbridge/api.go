@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"image/jpeg"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -85,20 +87,8 @@ func (client *APIClient) SendMessage(ctx context.Context, params SendParams) (Se
 		return SendResult{}, bridgeError("MESSAGE_INVALID", "clientMessageId exceeds 100 characters", false)
 	}
 
-	body := map[string]any{
-		"message_id":  params.ClientMessageID,
-		"text_format": params.Format,
-	}
-	applyRoute(body, route)
-	if params.ReplyTo != "" {
-		body["reply_to_message_id"] = params.ReplyTo
-	}
-	if params.Text != "" {
-		body["text"] = params.Text
-	}
-	if len(params.Media) == 0 {
-		body["message_type"] = "text"
-	} else {
+	var images []map[string]any
+	if len(params.Media) > 0 {
 		source := route.Source
 		if source == "" && route.ConversationID != "" {
 			source = "agenrena"
@@ -106,24 +96,124 @@ func (client *APIClient) SendMessage(ctx context.Context, params SendParams) (Se
 		if source == "" {
 			return SendResult{}, bridgeError("ROUTE_INVALID", "image sending requires a source-qualified route", false)
 		}
-		images, err := client.prepareAndUploadImages(ctx, source, params.Media)
+		images, err = client.prepareAndUploadImages(ctx, source, params.Media)
 		if err != nil {
 			return SendResult{}, err
 		}
-		body["message_type"] = "image"
-		body["images"] = images
 	}
 
+	messageIDs := []string{}
+	if params.Text != "" {
+		body := outboundMessageBody(route, params.ClientMessageID, params.ReplyTo)
+		body["message_type"] = "text"
+		body["text"] = params.Text
+		body["text_format"] = params.Format
+		messageID, err := client.sendOutboundMessage(ctx, body)
+		if err != nil {
+			return SendResult{}, err
+		}
+		messageIDs = append(messageIDs, messageID)
+	}
+	if len(images) > 0 {
+		clientMessageID := params.ClientMessageID
+		replyTo := params.ReplyTo
+		if params.Text != "" {
+			clientMessageID = derivedClientMessageID(params.ClientMessageID, "image")
+			replyTo = ""
+		}
+		body := outboundMessageBody(route, clientMessageID, replyTo)
+		body["message_type"] = "image"
+		body["images"] = images
+		messageID, err := client.sendOutboundMessage(ctx, body)
+		if err != nil {
+			if len(messageIDs) > 0 {
+				err = partialDeliveryError(err, "image", messageIDs)
+			}
+			return SendResult{}, err
+		}
+		messageIDs = append(messageIDs, messageID)
+	}
+
+	messageID := messageIDs[len(messageIDs)-1]
+	allMessageIDs := []string(nil)
+	if len(messageIDs) > 1 {
+		allMessageIDs = messageIDs
+	}
+	return SendResult{
+		MessageID: messageID, MessageIDs: allMessageIDs, ClientMessageID: params.ClientMessageID,
+	}, nil
+}
+
+func outboundMessageBody(route Route, clientMessageID, replyTo string) map[string]any {
+	body := map[string]any{"message_id": clientMessageID}
+	applyRoute(body, route)
+	if replyTo != "" {
+		body["reply_to_message_id"] = replyTo
+	}
+	return body
+}
+
+func (client *APIClient) sendOutboundMessage(ctx context.Context, body map[string]any) (string, error) {
 	result, err := client.doJSONWithRetry(ctx, http.MethodPost, "/channels/messages/send/", body, true)
 	if err != nil {
-		return SendResult{}, apiRPCError(err, params.ClientMessageID != "")
+		return "", apiRPCError(err, true)
 	}
 	messageID := valueString(result["message_id"])
 	if messageID == "" {
 		messageID = valueString(result["id"])
 	}
-	return SendResult{
-		MessageID: messageID, ClientMessageID: params.ClientMessageID,
+	return messageID, nil
+}
+
+func derivedClientMessageID(parent, part string) string {
+	digest := sha256.Sum256([]byte(parent + "\x00" + part))
+	return "bridge-" + hex.EncodeToString(digest[:])
+}
+
+func partialDeliveryError(err error, failedPart string, deliveredMessageIDs []string) error {
+	rpcErr, ok := err.(*RPCError)
+	if !ok {
+		return err
+	}
+	result := *rpcErr
+	result.Fields = map[string]any{
+		"failedPart":          failedPart,
+		"deliveredMessageIds": append([]string(nil), deliveredMessageIDs...),
+	}
+	return &result
+}
+
+// Handoff returns the conversation to its human owner. Agenrena only models a
+// delegation for its own conversations, so a route that carries an external
+// platform destination alone cannot be handed off.
+//
+// The endpoint is idempotent: handing off an already-human conversation reports
+// the same state instead of failing, so an ambiguous POST is safe to retry.
+//
+// Agenrena answers 404 for every conversation without a delegation the agent
+// owns, deliberately without distinguishing an assistant workspace from another
+// agent's conversation from one that does not exist. That single reply means
+// "this route has nothing to hand off", so it becomes HANDOFF_UNSUPPORTED like
+// the route check above rather than a generic API error.
+func (client *APIClient) Handoff(ctx context.Context, params HandoffParams) (HandoffResult, error) {
+	route, err := DecodeRoute(params.Route)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	if route.ConversationID == "" {
+		return HandoffResult{}, bridgeError("HANDOFF_UNSUPPORTED", "handoff requires a route with an Agenrena conversation", false)
+	}
+	endpoint := "/channels/conversations/" + url.PathEscape(route.ConversationID) + "/handoff/"
+	result, err := client.doJSONWithRetry(ctx, http.MethodPost, endpoint, nil, true)
+	if err != nil {
+		if apiErr, ok := err.(*APIError); ok && apiErr.Status == http.StatusNotFound {
+			return HandoffResult{}, bridgeError("HANDOFF_UNSUPPORTED", "route has no Agenrena conversation the agent can hand off", false)
+		}
+		return HandoffResult{}, apiRPCError(err, true)
+	}
+	return HandoffResult{
+		Responder:  valueString(result["responder"]),
+		SwitchedAt: valueString(result["switched_at"]),
 	}, nil
 }
 

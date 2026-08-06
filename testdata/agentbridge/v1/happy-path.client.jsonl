@@ -1,3 +1,4 @@
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"hermes","version":"0.4.0"},"agent":{"type":"hermes","slashCommands":[]},"capabilities":{"inboundMedia":true,"outboundMedia":true}}}
 {"jsonrpc":"2.0","id":2,"method":"messages/send","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0","replyTo":"msg_123","clientMessageId":"hermes-550e8400-e29b-41d4-a716-446655440000","text":"Hello from Hermes","format":"markdown","media":[]}}
-{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"conversations/handoff","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0"}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}

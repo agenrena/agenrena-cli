@@ -108,7 +108,7 @@ agent command behavior.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"]}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true}}}
 ```
 
 An agent-metadata registration failure may be returned as a warning when the
@@ -152,6 +152,11 @@ conversion, thumbnail generation, presigning, upload, retry, and final message
 creation. Outbound image input supports JPEG, PNG, and GIF in v1; WebP input is
 rejected with `MEDIA_INVALID` by the current dependency-free CLI build.
 
+When both `text` and `media` are present, the CLI uploads all media first and
+then creates two platform messages in order: a text message followed by one
+image message containing all media. The two REST payloads never mix `text` and
+`images`. `replyTo` is attached to the first message only.
+
 If `clientMessageId` is absent, the CLI must generate one before its first
 network attempt and reuse it for every internal retry. A plugin retrying an
 RPC after an unknown outcome should reuse the same `clientMessageId`.
@@ -159,25 +164,66 @@ RPC after an unknown outcome should reuse the same `clientMessageId`.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":2,"result":{"messageId":"msg_456","clientMessageId":"hermes-550e8400-e29b-41d4-a716-446655440000"}}
+{"jsonrpc":"2.0","id":2,"result":{"messageId":"msg_image","messageIds":["msg_text","msg_image"],"clientMessageId":"hermes-550e8400-e29b-41d4-a716-446655440000"}}
 ```
 
 If one logical request produces multiple platform messages, `messageId` is the
 last visible message and `messageIds` contains all IDs in send order.
+Each platform message uses a distinct ID derived deterministically from
+`clientMessageId`, so retrying the same logical request does not duplicate a
+part that was already delivered. If a later part fails, error `fields` contains
+`failedPart` and `deliveredMessageIds`.
+
+### `conversations/handoff`
+
+Returns the conversation carried by `route` to its human owner. The agent stops
+being the responder until a human delegates the conversation back to it.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"conversations/handoff","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0"}}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `route` | yes | Opaque route issued by the CLI. |
+
+Successful response:
+
+```json
+{"jsonrpc":"2.0","id":3,"result":{"responder":"human","switchedAt":"2026-08-04T10:30:00Z"}}
+```
+
+Only a conversation the agent answers under a delegation can be handed off.
+`HANDOFF_UNSUPPORTED` covers every route that has none, whether the destination
+is an external platform, the agent's own assistant workspace, or a conversation
+delegated to somebody else. Agenrena does not distinguish those cases, so a
+plugin must treat the code as final for that route rather than as a hint about
+which conversation it addressed.
+
+Handing off a conversation that is already answered by a human succeeds and
+reports the same state, so the request is safe to retry.
+
+A handoff is not permanent and the bridge does not track it. A human may return
+the conversation to the agent at any time, and Agenrena does not notify the
+agent when either side of that transition happens. Plugins must therefore keep
+sending on the route as normal and treat a later rejected send as the signal
+that the agent no longer holds the conversation.
 
 ### `shutdown`
 
 Requests graceful shutdown.
 
 ```json
-{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}
 ```
 
 The CLI stops accepting new requests, closes the WebSocket, releases the
 credential lock, returns the response below, closes stdout, and exits zero.
 
 ```json
-{"jsonrpc":"2.0","id":3,"result":{"state":"stopped"}}
+{"jsonrpc":"2.0","id":4,"result":{"state":"stopped"}}
 ```
 
 ## Notifications
@@ -301,6 +347,7 @@ Initial stable application codes are:
 | `AUTH_INVALID` | false | Stored credential was rejected. |
 | `BRIDGE_IN_USE` | false | Another process owns this credential. |
 | `ROUTE_INVALID` | false | Route is malformed or unsupported. |
+| `HANDOFF_UNSUPPORTED` | false | Route has no delegated conversation to hand off. |
 | `MESSAGE_INVALID` | false | Message lacks valid text/media or exceeds limits. |
 | `MEDIA_INVALID` | false | Media path, URL, type, dimensions, or bytes are invalid. |
 | `RATE_LIMITED` | true | Agenrena requested a delayed retry. |
@@ -317,10 +364,11 @@ the same `clientMessageId` for a safe idempotent retry.
 Inbound delivery is at least once. Plugins must deduplicate by inbound `id`.
 There is no acknowledgement method in v1.
 
-Outbound requests are at most one logical message when Agenrena honors
-`clientMessageId`. The CLI must reuse the same ID across its internal retries.
-If it cannot determine whether an unkeyed request succeeded, it returns
-`DELIVERY_UNKNOWN` rather than retrying blindly.
+Outbound requests are at most one logical operation when Agenrena honors
+`clientMessageId`. A logical text-and-media operation fans out to two platform
+messages with stable derived IDs. The CLI must reuse those IDs across its
+internal retries. If it cannot determine whether an unkeyed request succeeded,
+it returns `DELIVERY_UNKNOWN` rather than retrying blindly.
 
 Notifications and responses share stdout. Their relative order reflects the
 order in which the CLI committed each line, but plugins must not assume that a
@@ -342,7 +390,8 @@ response blocks unrelated notifications.
 ## v1 Scope
 
 Version 1 includes text, images, stickers as inbound images, reply context,
-agent metadata registration, connection status, and text/image sending.
+agent metadata registration, connection status, text/image sending, and
+returning a conversation to its human owner.
 
 Version 1 deliberately excludes:
 

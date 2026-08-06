@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +24,7 @@ func TestServiceCarriesImageMessageFromWebSocketToRESTReply(t *testing.T) {
 	pngBytes := testPNG(t)
 	var mu sync.Mutex
 	var registered map[string]any
-	var sent map[string]any
+	var sent []map[string]any
 	uploads := map[string][]byte{}
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Host + request.URL.Path {
@@ -49,9 +50,13 @@ func TestServiceCarriesImageMessageFromWebSocketToRESTReply(t *testing.T) {
 			return testHTTPResponse(request, http.StatusNoContent, "", ""), nil
 		case "api.example/channels/messages/send/":
 			mu.Lock()
-			sent = decodeTestJSONBody(t, request.Body)
+			sent = append(sent, decodeTestJSONBody(t, request.Body))
+			messageID := "outbound-text"
+			if len(sent) == 2 {
+				messageID = "outbound-image"
+			}
 			mu.Unlock()
-			return testJSONResponse(request, http.StatusOK, map[string]any{"message_id": "outbound-1"}), nil
+			return testJSONResponse(request, http.StatusOK, map[string]any{"message_id": messageID}), nil
 		default:
 			return testHTTPResponse(request, http.StatusNotFound, "not found", "text/plain"), nil
 		}
@@ -131,20 +136,37 @@ func TestServiceCarriesImageMessageFromWebSocketToRESTReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sendResult.MessageID != "outbound-1" || sendResult.ClientMessageID != "hermes-inbound-1" {
+	if sendResult.MessageID != "outbound-image" ||
+		!reflect.DeepEqual(sendResult.MessageIDs, []string{"outbound-text", "outbound-image"}) ||
+		sendResult.ClientMessageID != "hermes-inbound-1" {
 		t.Fatalf("send result=%+v", sendResult)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if sent["source"] != "telegram" || sent["chat_id"] != "chat-1" || sent["conversation_id"] != nil ||
-		sent["reply_to_message_id"] != "inbound-1" || sent["message_id"] != "hermes-inbound-1" || sent["message_type"] != "image" {
-		t.Fatalf("sent body=%v", sent)
+	if len(sent) != 2 {
+		t.Fatalf("sent %d platform messages: %v", len(sent), sent)
+	}
+	textBody, imageBody := sent[0], sent[1]
+	if textBody["source"] != "telegram" || textBody["chat_id"] != "chat-1" || textBody["conversation_id"] != nil ||
+		textBody["reply_to_message_id"] != "inbound-1" || textBody["message_id"] != "hermes-inbound-1" ||
+		textBody["message_type"] != "text" || textBody["text"] != "received" {
+		t.Fatalf("text body=%v", textBody)
+	}
+	if imageBody["source"] != "telegram" || imageBody["chat_id"] != "chat-1" || imageBody["conversation_id"] != nil ||
+		imageBody["message_id"] != derivedClientMessageID("hermes-inbound-1", "image") || imageBody["message_type"] != "image" {
+		t.Fatalf("image body=%v", imageBody)
+	}
+	if _, exists := imageBody["text"]; exists {
+		t.Fatalf("image body unexpectedly contains text: %v", imageBody)
+	}
+	if _, exists := imageBody["reply_to_message_id"]; exists {
+		t.Fatalf("image body unexpectedly contains reply_to_message_id: %v", imageBody)
 	}
 	if len(uploads["/image"]) == 0 || len(uploads["/thumbnail"]) == 0 {
 		t.Fatalf("uploads=%v", uploads)
 	}
-	if images, ok := sent["images"].([]any); !ok || len(images) != 1 {
-		t.Fatalf("sent images=%v", sent["images"])
+	if images, ok := imageBody["images"].([]any); !ok || len(images) != 1 {
+		t.Fatalf("sent images=%v", imageBody["images"])
 	}
 }
 

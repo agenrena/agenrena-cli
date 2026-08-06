@@ -18,6 +18,7 @@ const maxProtocolLineBytes = 8 * 1024 * 1024
 type Backend interface {
 	Initialize(context.Context, agentbridge.InitializeParams, func(agentbridge.Event)) (agentbridge.InitializeResult, error)
 	Send(context.Context, agentbridge.SendParams) (agentbridge.SendResult, error)
+	Handoff(context.Context, agentbridge.HandoffParams) (agentbridge.HandoffResult, error)
 	Fatal() <-chan *agentbridge.RPCError
 	Close() error
 }
@@ -121,6 +122,29 @@ func (server *Server) Run(ctx context.Context) error {
 					continue
 				}
 				result, err := server.backend.Send(ctx, params)
+				if err != nil {
+					rpcErr := toRPCError(err)
+					_ = server.writer.write(errorResponse(request.ID, -32000, rpcErr.Message, rpcErr))
+					continue
+				}
+				if err := server.writer.write(resultResponse(request.ID, result)); err != nil {
+					return err
+				}
+			case "conversations/handoff":
+				if !initialized {
+					_ = server.writer.write(errorResponse(request.ID, -32000, "Bridge is not initialized", &agentbridge.RPCError{
+						Code: "NOT_INITIALIZED", Message: "initialize must succeed before conversations/handoff", Recoverable: false,
+					}))
+					continue
+				}
+				var params agentbridge.HandoffParams
+				if err := decodeParams(request.Params, &params); err != nil {
+					_ = server.writer.write(errorResponse(request.ID, -32602, "Invalid params", &agentbridge.RPCError{
+						Code: "MESSAGE_INVALID", Message: err.Error(), Recoverable: false,
+					}))
+					continue
+				}
+				result, err := server.backend.Handoff(ctx, params)
 				if err != nil {
 					rpcErr := toRPCError(err)
 					_ = server.writer.write(errorResponse(request.ID, -32000, rpcErr.Message, rpcErr))

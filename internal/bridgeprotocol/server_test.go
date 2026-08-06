@@ -15,6 +15,7 @@ type fakeBackend struct {
 	fatal      chan *agentbridge.RPCError
 	initialize agentbridge.InitializeParams
 	sent       agentbridge.SendParams
+	handedOff  agentbridge.HandoffParams
 	closed     bool
 	initErr    error
 }
@@ -37,6 +38,11 @@ func (backend *fakeBackend) Initialize(_ context.Context, params agentbridge.Ini
 func (backend *fakeBackend) Send(_ context.Context, params agentbridge.SendParams) (agentbridge.SendResult, error) {
 	backend.sent = params
 	return agentbridge.SendResult{MessageID: "out", ClientMessageID: params.ClientMessageID}, nil
+}
+
+func (backend *fakeBackend) Handoff(_ context.Context, params agentbridge.HandoffParams) (agentbridge.HandoffResult, error) {
+	backend.handedOff = params
+	return agentbridge.HandoffResult{Responder: "human", SwitchedAt: "2026-08-04T00:00:00Z"}, nil
 }
 
 func (backend *fakeBackend) Fatal() <-chan *agentbridge.RPCError { return backend.fatal }
@@ -72,10 +78,32 @@ func TestServerRunsInitializeSendAndShutdown(t *testing.T) {
 	}
 }
 
+func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"hermes","version":"1"},"agent":{"type":"hermes"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"conversations/handoff","params":{"route":"v1.route"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}`,
+	}, "\n") + "\n"
+	backend := newFakeBackend()
+	var output bytes.Buffer
+	if err := NewServer(strings.NewReader(input), &output, backend).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.handedOff.Route != "v1.route" {
+		t.Fatalf("handoff params=%+v", backend.handedOff)
+	}
+	lines := decodeOutputLines(t, output.String())
+	result, ok := lines[2]["result"].(map[string]any)
+	if !ok || result["responder"] != "human" {
+		t.Fatalf("handoff response=%v", lines[2])
+	}
+}
+
 func TestServerRejectsSendBeforeInitializeAndUnknownMethod(t *testing.T) {
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":"a","method":"messages/send","params":{"text":"x"}}`,
 		`{"jsonrpc":"2.0","id":"b","method":"unknown","params":{}}`,
+		`{"jsonrpc":"2.0","id":"d","method":"conversations/handoff","params":{"route":"v1.route"}}`,
 		`{"jsonrpc":"2.0","id":"c","method":"shutdown","params":{}}`,
 	}, "\n") + "\n"
 	backend := newFakeBackend()
@@ -84,7 +112,8 @@ func TestServerRejectsSendBeforeInitializeAndUnknownMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := decodeOutputLines(t, output.String())
-	if nestedCode(lines[0]) != "NOT_INITIALIZED" || nestedCode(lines[1]) != "METHOD_NOT_FOUND" {
+	if nestedCode(lines[0]) != "NOT_INITIALIZED" || nestedCode(lines[1]) != "METHOD_NOT_FOUND" ||
+		nestedCode(lines[2]) != "NOT_INITIALIZED" {
 		t.Fatalf("output=%s", output.String())
 	}
 }
