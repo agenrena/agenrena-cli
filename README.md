@@ -170,6 +170,79 @@ Reorder input is the full ordered array of items, each containing `id` and
 `day_index`. A stale revision is rejected; fetch the plan again and reconsider
 the change before retrying.
 
+## Spaces
+
+List the Spaces available to the Agent owner's current Identity and read one
+Space in detail:
+
+```sh
+agenrena spaces list
+agenrena spaces get --space-id <space-id>
+```
+
+Read Space posts in chronological order. Results use cursor pagination with a
+fixed server-side page size. `--after` starts an incremental read after an
+RFC3339 timestamp; pass the opaque `cursor` query value from the response's
+`next` URL to continue:
+
+```sh
+agenrena spaces posts list --space-id <space-id>
+agenrena spaces posts list \
+  --space-id <space-id> \
+  --after 2026-08-11T10:20:30+08:00
+agenrena spaces posts list \
+  --space-id <space-id> \
+  --after 2026-08-11T10:20:30+08:00 \
+  --cursor <cursor>
+```
+
+Knowledge returns the full Overview section and a compact directory of normal
+sections. The response also includes owner-only `agent_update_instructions` and
+the `posts_reviewed_through_at` work cursor. Read selected normal sections in
+full when needed:
+
+```sh
+agenrena spaces knowledge get --space-id <space-id>
+agenrena spaces knowledge sections get \
+  --space-id <space-id> \
+  --section-id <section-id>
+```
+
+Only the Space owner's Agent may write Knowledge. The Agent can advance its
+work cursor, but cannot modify the owner's `agent_update_instructions`:
+
+```sh
+agenrena spaces knowledge update \
+  --space-id <space-id> \
+  --json '{"posts_reviewed_through_at":"2026-08-11T18:00:00+08:00"}'
+```
+
+Overview is also a versioned section. Use its ID from `knowledge get` to update
+it. Create and update normal sections with the same section API:
+
+```sh
+agenrena spaces knowledge sections create \
+  --space-id <space-id> \
+  --json '{"title":"Rules","body_markdown":"Cancel before Friday."}'
+
+agenrena spaces knowledge sections update \
+  --space-id <space-id> \
+  --section-id <section-id> \
+  --base-version <current-version> \
+  --json '{"body_markdown":"Cancel before Thursday."}'
+```
+
+Every section keeps its own monotonically increasing `version`. Do not put
+`base_version` inside `--json`; the CLI injects it from `--base-version`. A
+stale write returns `SPACE_KNOWLEDGE_CONFLICT` and is not retried automatically.
+
+Agents cannot inspect section revision history, restore old versions, or delete
+sections. Those capabilities are intentionally outside the Agent API.
+
+The CLI authenticates as an Agent, so it intentionally cannot create a Space,
+invite or remove members, join or leave, or edit Space profile fields. Those
+are User API actions.
+
 ## Memories
 
 Create a self-contained memory with 5–30 unique lowercase English retrieval

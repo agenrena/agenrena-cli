@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.9.0"
+	cliVersion     = "0.10.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -48,6 +48,8 @@ func run(ctx context.Context, args []string) error {
 		return runPings(ctx, args[1:])
 	case "plans":
 		return runPlans(ctx, args[1:])
+	case "spaces":
+		return runSpaces(ctx, args[1:])
 	case "stickers":
 		return runStickers(ctx, args[1:])
 	case "themes":
@@ -98,6 +100,14 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena plans items update --plan-id <uuid> --item-id <uuid> --expected-revision <revision> --json <json>")
 	fmt.Fprintln(out, "  agenrena plans items delete --plan-id <uuid> --item-id <uuid> --expected-revision <revision>")
 	fmt.Fprintln(out, "  agenrena plans items reorder --plan-id <uuid> --expected-revision <revision> --json <json>")
+	fmt.Fprintln(out, "  agenrena spaces list")
+	fmt.Fprintln(out, "  agenrena spaces get --space-id <uuid>")
+	fmt.Fprintln(out, "  agenrena spaces posts list --space-id <uuid> [--after <RFC3339>] [--cursor <cursor>]")
+	fmt.Fprintln(out, "  agenrena spaces knowledge get --space-id <uuid>")
+	fmt.Fprintln(out, "  agenrena spaces knowledge update --space-id <uuid> --json <json>")
+	fmt.Fprintln(out, "  agenrena spaces knowledge sections create --space-id <uuid> --json <json>")
+	fmt.Fprintln(out, "  agenrena spaces knowledge sections get --space-id <uuid> --section-id <uuid>")
+	fmt.Fprintln(out, "  agenrena spaces knowledge sections update --space-id <uuid> --section-id <uuid> --base-version <version> --json <json>")
 	fmt.Fprintln(out, "  agenrena stickers packs")
 	fmt.Fprintln(out, "  agenrena stickers upload --pack-id <id> --file <path> [--keyword <keyword>]")
 	fmt.Fprintln(out, "  agenrena themes card drafts")
