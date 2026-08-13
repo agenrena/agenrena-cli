@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM --platform=$TARGETPLATFORM golang:1.26-alpine AS build
+FROM golang:1.26-alpine AS build
 
-RUN apk add --no-cache build-base opus-dev
+RUN apk add --no-cache build-base opus-dev soxr-dev soxr-static
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -16,4 +16,3 @@ RUN CGO_ENABLED=1 go build \
 
 FROM scratch AS export
 COPY --from=build /out/agenrena-rtc-helper /
-
