@@ -14,7 +14,9 @@ curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.
 ```
 
 The installer supports macOS and Linux on Apple Silicon/ARM64 and Intel/AMD64.
-It installs `agenrena` to `~/.local/bin` by default.
+It installs `agenrena` and the matching `agenrena-rtc-helper` to `~/.local/bin`
+by default. The helper stays stopped unless an Agent runtime accepts a voice
+call through the Agent Bridge.
 
 If needed:
 

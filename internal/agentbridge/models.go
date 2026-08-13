@@ -25,6 +25,7 @@ type AgentInfo struct {
 type ClientCapabilities struct {
 	InboundMedia  bool `json:"inboundMedia,omitempty"`
 	OutboundMedia bool `json:"outboundMedia,omitempty"`
+	Calls         bool `json:"calls,omitempty"`
 }
 
 type InitializeParams struct {
@@ -91,18 +92,57 @@ type IncomingMessage struct {
 
 type CallRTC struct {
 	ServerURL        string `json:"serverUrl"`
-	ParticipantToken string `json:"participantToken"`
+	ParticipantToken string `json:"participantToken,omitempty"`
 }
 
 type IncomingCall struct {
 	CallID         string  `json:"callId"`
 	ConversationID string  `json:"conversationId"`
+	Route          string  `json:"route,omitempty"`
 	ExpiresAt      string  `json:"expiresAt"`
 	RTC            CallRTC `json:"rtc"`
 }
 
 type CancelledCall struct {
 	CallID string `json:"callId"`
+}
+
+type CallAudioPreferences struct {
+	SampleRateHz int `json:"sampleRateHz,omitempty"`
+}
+
+type AcceptCallParams struct {
+	CallID string                `json:"callId"`
+	Audio  *CallAudioPreferences `json:"audio,omitempty"`
+}
+
+type LeaveCallParams struct {
+	CallID string `json:"callId"`
+}
+
+type CallMedia struct {
+	Transport       string `json:"transport"`
+	SocketPath      string `json:"socketPath"`
+	ProtocolVersion int    `json:"protocolVersion"`
+	Format          string `json:"format"`
+	SampleRateHz    int    `json:"sampleRateHz"`
+	Channels        int    `json:"channels"`
+	FrameDurationMS int    `json:"frameDurationMs"`
+}
+
+type AcceptCallResult struct {
+	CallID string    `json:"callId"`
+	Media  CallMedia `json:"media"`
+}
+
+type LeaveCallResult struct {
+	CallID string `json:"callId"`
+	State  string `json:"state"`
+}
+
+type CallEnded struct {
+	CallID string `json:"callId"`
+	Reason string `json:"reason"`
 }
 
 type Status struct {

@@ -16,6 +16,8 @@ type fakeBackend struct {
 	initialize agentbridge.InitializeParams
 	sent       agentbridge.SendParams
 	handedOff  agentbridge.HandoffParams
+	accepted   agentbridge.AcceptCallParams
+	left       agentbridge.LeaveCallParams
 	closed     bool
 	initErr    error
 }
@@ -43,6 +45,19 @@ func (backend *fakeBackend) Send(_ context.Context, params agentbridge.SendParam
 func (backend *fakeBackend) Handoff(_ context.Context, params agentbridge.HandoffParams) (agentbridge.HandoffResult, error) {
 	backend.handedOff = params
 	return agentbridge.HandoffResult{Responder: "human", SwitchedAt: "2026-08-04T00:00:00Z"}, nil
+}
+
+func (backend *fakeBackend) AcceptCall(_ context.Context, params agentbridge.AcceptCallParams) (agentbridge.AcceptCallResult, error) {
+	backend.accepted = params
+	return agentbridge.AcceptCallResult{CallID: params.CallID, Media: agentbridge.CallMedia{
+		Transport: "unix-socket", SocketPath: "/tmp/media.sock", ProtocolVersion: 1,
+		Format: "pcm_s16le", SampleRateHz: 24000, Channels: 1, FrameDurationMS: 20,
+	}}, nil
+}
+
+func (backend *fakeBackend) LeaveCall(_ context.Context, params agentbridge.LeaveCallParams) (agentbridge.LeaveCallResult, error) {
+	backend.left = params
+	return agentbridge.LeaveCallResult{CallID: params.CallID, State: "ended"}, nil
 }
 
 func (backend *fakeBackend) Fatal() <-chan *agentbridge.RPCError { return backend.fatal }
@@ -96,6 +111,33 @@ func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
 	result, ok := lines[2]["result"].(map[string]any)
 	if !ok || result["responder"] != "human" {
 		t.Fatalf("handoff response=%v", lines[2])
+	}
+}
+
+func TestServerDispatchesCallAcceptAndLeaveAfterInitialize(t *testing.T) {
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"openclaw","version":"1"},"agent":{"type":"openclaw"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"calls/accept","params":{"callId":"call-1","audio":{"sampleRateHz":16000}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"calls/leave","params":{"callId":"call-1"}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}`,
+	}, "\n") + "\n"
+	backend := newFakeBackend()
+	var output bytes.Buffer
+	if err := NewServer(strings.NewReader(input), &output, backend).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.accepted.CallID != "call-1" || backend.accepted.Audio == nil ||
+		backend.accepted.Audio.SampleRateHz != 16000 || backend.left.CallID != "call-1" {
+		t.Fatalf("accepted=%+v left=%+v", backend.accepted, backend.left)
+	}
+	lines := decodeOutputLines(t, output.String())
+	acceptResult, ok := lines[2]["result"].(map[string]any)
+	if !ok || acceptResult["callId"] != "call-1" {
+		t.Fatalf("accept response=%v", lines[2])
+	}
+	leaveResult, ok := lines[3]["result"].(map[string]any)
+	if !ok || leaveResult["state"] != "ended" {
+		t.Fatalf("leave response=%v", lines[3])
 	}
 }
 

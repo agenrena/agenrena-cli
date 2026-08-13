@@ -30,6 +30,8 @@ type Config struct {
 	PingInterval      time.Duration
 	PingTimeout       time.Duration
 	WebSocketDialer   func(context.Context, string, int, string) (*WebSocketConnection, error)
+	RTCHelperPath     string
+	RTCTempDir        string
 }
 
 type Service struct {
@@ -47,10 +49,17 @@ type Service struct {
 	notify      func(Event)
 	fatal       chan *RPCError
 	wg          sync.WaitGroup
+	rtc         *RTCHelperManager
 }
 
 func NewService(config Config) *Service {
-	return &Service{config: config, fatal: make(chan *RPCError, 1)}
+	service := &Service{config: config, fatal: make(chan *RPCError, 1)}
+	service.rtc = NewRTCHelperManager(RTCHelperManagerConfig{
+		HelperPath: config.RTCHelperPath,
+		TempDir:    config.RTCTempDir,
+		Notify:     service.emit,
+	})
+	return service
 }
 
 func (service *Service) Initialize(ctx context.Context, params InitializeParams, notify func(Event)) (InitializeResult, error) {
@@ -183,6 +192,26 @@ func (service *Service) Handoff(ctx context.Context, params HandoffParams) (Hand
 	return apiClient.Handoff(ctx, params)
 }
 
+func (service *Service) AcceptCall(ctx context.Context, params AcceptCallParams) (AcceptCallResult, error) {
+	service.mu.Lock()
+	initialized := service.initialized && !service.closed
+	service.mu.Unlock()
+	if !initialized {
+		return AcceptCallResult{}, bridgeError("NOT_INITIALIZED", "bridge is not initialized", false)
+	}
+	return service.rtcManager().Accept(ctx, params)
+}
+
+func (service *Service) LeaveCall(_ context.Context, params LeaveCallParams) (LeaveCallResult, error) {
+	service.mu.Lock()
+	initialized := service.initialized && !service.closed
+	service.mu.Unlock()
+	if !initialized {
+		return LeaveCallResult{}, bridgeError("NOT_INITIALIZED", "bridge is not initialized", false)
+	}
+	return service.rtcManager().Leave(params.CallID, "local_leave")
+}
+
 func (service *Service) Fatal() <-chan *RPCError { return service.fatal }
 
 func (service *Service) Close() error {
@@ -192,7 +221,7 @@ func (service *Service) Close() error {
 		return nil
 	}
 	service.closed = true
-	cancel, socket, credentialLock := service.cancel, service.socket, service.lock
+	cancel, socket, credentialLock, rtc := service.cancel, service.socket, service.lock, service.rtc
 	service.cancel, service.socket, service.lock = nil, nil, nil
 	notify := service.notify
 	service.mu.Unlock()
@@ -204,6 +233,9 @@ func (service *Service) Close() error {
 	}
 	if socket != nil {
 		_ = socket.Close()
+	}
+	if rtc != nil {
+		_ = rtc.Close()
 	}
 	service.wg.Wait()
 	if credentialLock != nil {
@@ -314,7 +346,21 @@ func (service *Service) consumeConnection(socket *WebSocketConnection) error {
 		}
 		if handled {
 			if callEvent != nil {
-				service.emit(*callEvent)
+				switch params := callEvent.Params.(type) {
+				case IncomingCall:
+					route, routeErr := EncodeRoute(Route{ConversationID: params.ConversationID})
+					if routeErr != nil {
+						log.Printf("ignored an invalid Agenrena call route: %v", routeErr)
+						continue
+					}
+					service.rtcManager().Remember(params)
+					params.Route = route
+					params.RTC.ParticipantToken = ""
+					service.emit(Event{Method: callEvent.Method, Params: params})
+				case CancelledCall:
+					service.rtcManager().Cancel(params.CallID)
+					service.emit(*callEvent)
+				}
 			}
 			continue
 		}
@@ -327,6 +373,19 @@ func (service *Service) consumeConnection(socket *WebSocketConnection) error {
 			service.emit(Event{Method: "messages/received", Params: message})
 		}
 	}
+}
+
+func (service *Service) rtcManager() *RTCHelperManager {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.rtc == nil {
+		service.rtc = NewRTCHelperManager(RTCHelperManagerConfig{
+			HelperPath: service.config.RTCHelperPath,
+			TempDir:    service.config.RTCTempDir,
+			Notify:     service.emit,
+		})
+	}
+	return service.rtc
 }
 
 func normalizeCallEvent(event map[string]any) (*Event, bool, error) {

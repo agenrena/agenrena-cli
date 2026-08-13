@@ -1,5 +1,7 @@
 /agenrena-cli
 /dist/
+/rtc-helper/agenrena-rtc-helper
+/rtc-helper/dist/
 *.tmp
 *.log
 .DS_Store

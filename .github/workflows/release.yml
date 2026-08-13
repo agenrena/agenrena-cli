@@ -48,10 +48,105 @@ jobs:
           name: agenrena-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/agenrena-${{ matrix.goos }}-${{ matrix.goarch }}
 
+  build-rtc-helper:
+    name: Build RTC helper (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            artifact: agenrena-rtc-helper-linux-amd64
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+            artifact: agenrena-rtc-helper-linux-arm64
+          - goos: darwin
+            goarch: arm64
+            runner: macos-15
+            artifact: agenrena-rtc-helper-darwin-arm64.tar.gz
+          - goos: darwin
+            goarch: amd64
+            runner: macos-15-intel
+            artifact: agenrena-rtc-helper-darwin-amd64.tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.goos == 'linux'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: matrix.goos == 'linux'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build statically linked Linux helper
+        if: matrix.goos == 'linux'
+        working-directory: rtc-helper
+        run: |
+          docker buildx build \
+            --platform "linux/${{ matrix.goarch }}" \
+            --target export \
+            --output "type=local,dest=dist" \
+            .
+          mv dist/agenrena-rtc-helper "dist/agenrena-rtc-helper-linux-${{ matrix.goarch }}"
+
+      - name: Setup Go for macOS helper
+        if: matrix.goos == 'darwin'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: rtc-helper/go.mod
+
+      - name: Install macOS media libraries
+        if: matrix.goos == 'darwin'
+        run: brew install pkg-config opus libsoxr
+
+      - name: Build portable macOS helper bundle
+        if: matrix.goos == 'darwin'
+        working-directory: rtc-helper
+        run: |
+          mkdir -p dist/bundle
+          go build \
+            -tags nolibopusfile \
+            -trimpath \
+            -ldflags '-s -w' \
+            -o dist/bundle/agenrena-rtc-helper \
+            ./cmd/agenrena-rtc-helper
+
+          opus_linked="$(otool -L dist/bundle/agenrena-rtc-helper | awk '$1 ~ /libopus/ && $1 ~ /\.dylib/ { print $1; exit }')"
+          soxr_linked="$(otool -L dist/bundle/agenrena-rtc-helper | awk '$1 ~ /libsoxr/ && $1 ~ /\.dylib/ { print $1; exit }')"
+          test -n "$opus_linked"
+          test -n "$soxr_linked"
+
+          cp -L "$(brew --prefix opus)/lib/libopus.0.dylib" dist/bundle/libopus.0.dylib
+          cp -L "$(brew --prefix libsoxr)/lib/libsoxr.0.dylib" dist/bundle/libsoxr.0.dylib
+          install_name_tool -change "$opus_linked" '@executable_path/libopus.0.dylib' dist/bundle/agenrena-rtc-helper
+          install_name_tool -change "$soxr_linked" '@executable_path/libsoxr.0.dylib' dist/bundle/agenrena-rtc-helper
+          codesign --force --sign - dist/bundle/libopus.0.dylib
+          codesign --force --sign - dist/bundle/libsoxr.0.dylib
+          codesign --force --sign - dist/bundle/agenrena-rtc-helper
+
+          if otool -L dist/bundle/agenrena-rtc-helper | grep -E '/(opt/homebrew|usr/local)/'; then
+            echo "helper still references a Homebrew path" >&2
+            exit 1
+          fi
+          tar -czf "dist/agenrena-rtc-helper-darwin-${{ matrix.goarch }}.tar.gz" \
+            -C dist/bundle \
+            agenrena-rtc-helper libopus.0.dylib libsoxr.0.dylib
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: rtc-helper/dist/${{ matrix.artifact }}
+
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, build-rtc-helper]
 
     steps:
       - name: Download artifacts

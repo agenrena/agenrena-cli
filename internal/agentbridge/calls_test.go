@@ -114,6 +114,12 @@ func TestServiceCarriesCallEventsFromWebSocket(t *testing.T) {
 			if event.Method != method {
 				t.Fatalf("event method=%q want=%q", event.Method, method)
 			}
+			if method == "calls/incoming" {
+				call, ok := event.Params.(IncomingCall)
+				if !ok || call.Route == "" || call.RTC.ParticipantToken != "" {
+					t.Fatalf("public incoming call must have an opaque route without credentials: %+v", event.Params)
+				}
+			}
 		case <-time.After(3 * time.Second):
 			t.Fatalf("timed out waiting for %s", method)
 		}

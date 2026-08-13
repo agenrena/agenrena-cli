@@ -86,7 +86,7 @@ Initializes the bridge and declares the runtime using it.
 Request:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"hermes","version":"0.4.0"},"agent":{"type":"hermes","slashCommands":[{"name":"help","description":"Show available commands","aliases":[],"argsHint":"","subcommands":[]}]},"capabilities":{"inboundMedia":true,"outboundMedia":true}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"openclaw-agenrena","version":"1.0.0"},"agent":{"type":"openclaw","slashCommands":[]},"capabilities":{"inboundMedia":true,"outboundMedia":true,"calls":true}}}
 ```
 
 Fields:
@@ -100,6 +100,7 @@ Fields:
 | `agent.slashCommands` | no | Commands the runtime can handle. Default is empty. |
 | `capabilities.inboundMedia` | no | Plugin can consume local inbound media paths. Default is false. |
 | `capabilities.outboundMedia` | no | Plugin may send media through `messages/send`. Default is false. |
+| `capabilities.calls` | no | Plugin can consume call lifecycle events and local PCM media. Default is false. |
 
 Slash command objects may contain `name`, `description`, `aliases`, `argsHint`,
 and `subcommands`. The CLI transports this metadata but does not interpret
@@ -292,7 +293,7 @@ Agent. Field names are normalized from the Agenrena WebSocket payload to the
 stdio protocol's camelCase convention.
 
 ```json
-{"jsonrpc":"2.0","method":"calls/incoming","params":{"callId":"call-uuid","conversationId":"conversation-uuid","expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://project.livekit.cloud","participantToken":"short-lived-room-scoped-token"}}}
+{"jsonrpc":"2.0","method":"calls/incoming","params":{"callId":"call-uuid","conversationId":"conversation-uuid","route":"v1.opaque-cli-issued-route","expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://project.livekit.cloud"}}}
 ```
 
 Fields:
@@ -301,13 +302,52 @@ Fields:
 | --- | --- | --- |
 | `callId` | yes | Stable call ID; receivers use it for idempotency. |
 | `conversationId` | yes | Agenrena conversation associated with the call. |
+| `route` | yes | Opaque CLI-issued route used for OpenClaw session continuity. |
 | `expiresAt` | yes | RFC 3339 invitation deadline supplied by Agenrena. |
 | `rtc.serverUrl` | yes | LiveKit WebSocket server URL. |
-| `rtc.participantToken` | yes | Short-lived, call-scoped Agent participant credential. |
 
-The runtime connects directly to the RTC provider. Audio and RTC signaling do
-not pass through bridge stdio. The participant token is a credential and must
-not be logged or persisted.
+The CLI retains the short-lived LiveKit participant credential in memory. It is
+passed to `agenrena-rtc-helper` over the helper's stdin and is never exposed to
+the plugin, command-line arguments, logs, or the local media socket.
+
+### `calls/accept`
+
+Accepts a pending invitation and starts the optional RTC helper. A plugin may
+request one supported sample rate for both incoming user audio and outgoing
+Agent audio:
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"calls/accept","params":{"callId":"call-uuid","audio":{"sampleRateHz":16000}}}
+```
+
+`audio` is optional. `audio.sampleRateHz` may be `16000`, `24000`, or `48000`;
+omitting it selects `24000`. PCM format, mono channels, and 20 ms frame duration
+are fixed in protocol version 1. An unsupported rate returns
+`MEDIA_FORMAT_UNSUPPORTED` without consuming the call invitation.
+
+The response describes a local binary PCM connection. No audio is transported
+as JSON or base64:
+
+```json
+{"jsonrpc":"2.0","id":4,"result":{"callId":"call-uuid","media":{"transport":"unix-socket","socketPath":"/tmp/agenrena-rtc-abc/media.sock","protocolVersion":1,"format":"pcm_s16le","sampleRateHz":16000,"channels":1,"frameDurationMs":20}}}
+```
+
+The socket uses a five-byte frame header: one byte of frame type followed by a
+four-byte unsigned big-endian payload length. Frame types are `0x01` hello,
+`0x02` ready, `0x10` incoming/user PCM, `0x11` outgoing/Agent PCM, and `0x12`
+clear outgoing audio. Hello and ready payloads are small JSON handshakes; audio
+payloads are raw PCM16 little-endian bytes.
+
+### `calls/leave`
+
+Stops the helper and removes its private runtime directory:
+
+```json
+{"jsonrpc":"2.0","id":5,"method":"calls/leave","params":{"callId":"call-uuid"}}
+```
+
+An unexpected helper or RTC disconnect is delivered as `calls/ended` with a
+non-secret `callId` and `reason`.
 
 ### `calls/cancelled`
 
@@ -386,6 +426,7 @@ Initial stable application codes are:
 | `HANDOFF_UNSUPPORTED` | false | Route has no delegated conversation to hand off. |
 | `MESSAGE_INVALID` | false | Message lacks valid text/media or exceeds limits. |
 | `MEDIA_INVALID` | false | Media path, URL, type, dimensions, or bytes are invalid. |
+| `MEDIA_FORMAT_UNSUPPORTED` | false | Requested call audio sample rate is unsupported. |
 | `RATE_LIMITED` | true | Agenrena requested a delayed retry. |
 | `NETWORK_ERROR` | true | A transport request failed before a known result. |
 | `DELIVERY_UNKNOWN` | false | Delivery may have succeeded; blind retry is unsafe. |

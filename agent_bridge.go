@@ -57,6 +57,7 @@ func runAgentBridge(ctx context.Context) error {
 		},
 		AllowPrivateMedia: localDevelopment,
 		AllowHTTPMedia:    localDevelopment,
+		RTCHelperPath:     strings.TrimSpace(os.Getenv("AGENRENA_RTC_HELPER_PATH")),
 	})
 	signalContext, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()

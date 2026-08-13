@@ -30,4 +30,12 @@ agenrena-darwin-arm64
 agenrena-darwin-amd64
 agenrena-linux-arm64
 agenrena-linux-amd64
+agenrena-rtc-helper-darwin-arm64.tar.gz
+agenrena-rtc-helper-darwin-amd64.tar.gz
+agenrena-rtc-helper-linux-arm64
+agenrena-rtc-helper-linux-amd64
 ```
+
+The macOS helper archives include the helper and its adjacent `libopus` and
+`libsoxr` dynamic libraries. Linux helper assets are statically linked single
+binaries. `install.sh` installs the matching helper together with the CLI.
