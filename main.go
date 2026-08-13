@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.11.1"
+	cliVersion     = "0.11.2"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
