@@ -108,7 +108,7 @@ agent command behavior.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true,"calls":true}}}
 ```
 
 An agent-metadata registration failure may be returned as a warning when the
@@ -284,6 +284,42 @@ Inbound media paths must be absolute, readable by the plugin process, and
 retained for at least 24 hours. The CLI expires old media opportunistically on
 startup and media handling rather than requiring an acknowledgement protocol
 in v1.
+
+### `calls/incoming`
+
+Delivers a best-effort incoming voice-call invitation for the authenticated
+Agent. Field names are normalized from the Agenrena WebSocket payload to the
+stdio protocol's camelCase convention.
+
+```json
+{"jsonrpc":"2.0","method":"calls/incoming","params":{"callId":"call-uuid","conversationId":"conversation-uuid","expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://project.livekit.cloud","participantToken":"short-lived-room-scoped-token"}}}
+```
+
+Fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `callId` | yes | Stable call ID; receivers use it for idempotency. |
+| `conversationId` | yes | Agenrena conversation associated with the call. |
+| `expiresAt` | yes | RFC 3339 invitation deadline supplied by Agenrena. |
+| `rtc.serverUrl` | yes | LiveKit WebSocket server URL. |
+| `rtc.participantToken` | yes | Short-lived, call-scoped Agent participant credential. |
+
+The runtime connects directly to the RTC provider. Audio and RTC signaling do
+not pass through bridge stdio. The participant token is a credential and must
+not be logged or persisted.
+
+### `calls/cancelled`
+
+Notifies the runtime that a previously delivered call is no longer available.
+
+```json
+{"jsonrpc":"2.0","method":"calls/cancelled","params":{"callId":"call-uuid"}}
+```
+
+Both call notifications must be handled idempotently by `callId`. A runtime
+may receive `calls/cancelled` after ignoring, completing, or locally expiring
+the corresponding invitation.
 
 ## Routes
 

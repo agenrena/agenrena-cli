@@ -44,6 +44,7 @@ type ServerCapabilities struct {
 	OutboundMedia bool     `json:"outboundMedia"`
 	MessageTypes  []string `json:"messageTypes"`
 	Handoff       bool     `json:"handoff"`
+	Calls         bool     `json:"calls"`
 }
 
 type InitializeResult struct {
@@ -86,6 +87,22 @@ type IncomingMessage struct {
 	ReplyTo     any                 `json:"replyTo"`
 	Context     []ContextItem       `json:"context"`
 	CreatedAt   string              `json:"createdAt,omitempty"`
+}
+
+type CallRTC struct {
+	ServerURL        string `json:"serverUrl"`
+	ParticipantToken string `json:"participantToken"`
+}
+
+type IncomingCall struct {
+	CallID         string  `json:"callId"`
+	ConversationID string  `json:"conversationId"`
+	ExpiresAt      string  `json:"expiresAt"`
+	RTC            CallRTC `json:"rtc"`
+}
+
+type CancelledCall struct {
+	CallID string `json:"callId"`
 }
 
 type Status struct {

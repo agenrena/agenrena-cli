@@ -94,7 +94,7 @@ func TestServiceCarriesImageMessageFromWebSocketToRESTReply(t *testing.T) {
 	if authenticatedURL := <-dialed; !strings.Contains(authenticatedURL, "token=test-key") {
 		t.Fatalf("dialed URL is not authenticated: %s", SafeURLForLog(authenticatedURL))
 	}
-	if result.State != "connected" || !result.Capabilities.InboundMedia || !result.Capabilities.OutboundMedia {
+	if result.State != "connected" || !result.Capabilities.InboundMedia || !result.Capabilities.OutboundMedia || !result.Capabilities.Calls {
 		t.Fatalf("initialize result=%+v", result)
 	}
 	if registered["agent_type"] != "hermes" {

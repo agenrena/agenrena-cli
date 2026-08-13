@@ -155,7 +155,7 @@ func (service *Service) Initialize(ctx context.Context, params InitializeParams,
 		Capabilities: ServerCapabilities{
 			InboundMedia: true, OutboundMedia: true,
 			MessageTypes: []string{"text", "image", "sticker"},
-			Handoff:      true,
+			Handoff:      true, Calls: true,
 		},
 		Warnings: warnings,
 	}, nil
@@ -307,6 +307,17 @@ func (service *Service) consumeConnection(socket *WebSocketConnection) error {
 			log.Printf("ignored a non-JSON or non-object Agenrena WebSocket event")
 			continue
 		}
+		callEvent, handled, err := normalizeCallEvent(payload)
+		if err != nil {
+			log.Printf("ignored an invalid Agenrena call event: %v", err)
+			continue
+		}
+		if handled {
+			if callEvent != nil {
+				service.emit(*callEvent)
+			}
+			continue
+		}
 		message, err := service.normalizeIncoming(service.ctx, payload)
 		if err != nil {
 			log.Printf("ignored an invalid Agenrena WebSocket event: %v", err)
@@ -316,6 +327,55 @@ func (service *Service) consumeConnection(socket *WebSocketConnection) error {
 			service.emit(Event{Method: "messages/received", Params: message})
 		}
 	}
+}
+
+func normalizeCallEvent(event map[string]any) (*Event, bool, error) {
+	if valueString(event["domain"]) != "calls" {
+		return nil, false, nil
+	}
+	action := valueString(event["action"])
+	if action != "incoming" && action != "cancelled" {
+		return nil, true, nil
+	}
+	payload, ok := event["payload"].(map[string]any)
+	if !ok {
+		return nil, true, fmt.Errorf("%s payload is missing", action)
+	}
+	callID := valueString(payload["call_id"])
+	if callID == "" {
+		return nil, true, fmt.Errorf("%s call_id is missing", action)
+	}
+	if action == "cancelled" {
+		return &Event{Method: "calls/cancelled", Params: CancelledCall{CallID: callID}}, true, nil
+	}
+
+	conversationID := valueString(payload["conversation_id"])
+	if conversationID == "" {
+		return nil, true, fmt.Errorf("incoming conversation_id is missing")
+	}
+	expiresAt := valueString(payload["expires_at"])
+	if expiresAt == "" {
+		return nil, true, fmt.Errorf("incoming expires_at is missing")
+	}
+	rtc, ok := payload["rtc"].(map[string]any)
+	if !ok {
+		return nil, true, fmt.Errorf("incoming rtc payload is missing")
+	}
+	serverURL := valueString(rtc["server_url"])
+	if serverURL == "" {
+		return nil, true, fmt.Errorf("incoming rtc server_url is missing")
+	}
+	participantToken := valueString(rtc["participant_token"])
+	if participantToken == "" {
+		return nil, true, fmt.Errorf("incoming rtc participant_token is missing")
+	}
+	return &Event{
+		Method: "calls/incoming",
+		Params: IncomingCall{
+			CallID: callID, ConversationID: conversationID, ExpiresAt: expiresAt,
+			RTC: CallRTC{ServerURL: serverURL, ParticipantToken: participantToken},
+		},
+	}, true, nil
 }
 
 func (service *Service) normalizeIncoming(ctx context.Context, payload map[string]any) (*IncomingMessage, error) {
