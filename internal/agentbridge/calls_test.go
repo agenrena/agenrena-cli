@@ -18,7 +18,11 @@ func TestNormalizeIncomingCallEvent(t *testing.T) {
 		"payload": map[string]any{
 			"call_id":         "call-1",
 			"conversation_id": "conversation-1",
-			"expires_at":      "2026-08-12T12:00:30+00:00",
+			"caller": map[string]any{
+				"id":           "identity-123",
+				"display_name": "Kai",
+			},
+			"expires_at": "2026-08-12T12:00:30+00:00",
 			"rtc": map[string]any{
 				"server_url":        "wss://rtc.example",
 				"participant_token": "agent-token",
@@ -30,7 +34,8 @@ func TestNormalizeIncomingCallEvent(t *testing.T) {
 	}
 	want := IncomingCall{
 		CallID: "call-1", ConversationID: "conversation-1", ExpiresAt: "2026-08-12T12:00:30+00:00",
-		RTC: CallRTC{ServerURL: "wss://rtc.example", ParticipantToken: "agent-token"},
+		Caller: &Sender{ID: "identity-123", Name: "Kai"},
+		RTC:    CallRTC{ServerURL: "wss://rtc.example", ParticipantToken: "agent-token"},
 	}
 	if !reflect.DeepEqual(event.Params, want) {
 		t.Fatalf("params=%+v want=%+v", event.Params, want)
@@ -39,7 +44,7 @@ func TestNormalizeIncomingCallEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(encoded) != `{"callId":"call-1","conversationId":"conversation-1","expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://rtc.example","participantToken":"agent-token"}}` {
+	if string(encoded) != `{"callId":"call-1","conversationId":"conversation-1","caller":{"id":"identity-123","name":"Kai"},"expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://rtc.example","participantToken":"agent-token"}}` {
 		t.Fatalf("encoded params=%s", encoded)
 	}
 }
@@ -103,7 +108,7 @@ func TestServiceCarriesCallEventsFromWebSocket(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- service.consumeConnection(socket) }()
 
-	incoming := []byte(`{"domain":"calls","action":"incoming","payload":{"call_id":"call-1","conversation_id":"conversation-1","expires_at":"2026-08-12T12:00:30+00:00","rtc":{"server_url":"wss://rtc.example","participant_token":"agent-token"}}}`)
+	incoming := []byte(`{"domain":"calls","action":"incoming","payload":{"call_id":"call-1","conversation_id":"conversation-1","caller":{"id":"identity-123","display_name":"Kai"},"expires_at":"2026-08-12T12:00:30+00:00","rtc":{"server_url":"wss://rtc.example","participant_token":"agent-token"}}}`)
 	cancelled := []byte(`{"domain":"calls","action":"cancelled","payload":{"call_id":"call-1"}}`)
 	writeExtendedServerFrame(serverConn, incoming)
 	writeExtendedServerFrame(serverConn, cancelled)
@@ -116,7 +121,7 @@ func TestServiceCarriesCallEventsFromWebSocket(t *testing.T) {
 			}
 			if method == "calls/incoming" {
 				call, ok := event.Params.(IncomingCall)
-				if !ok || call.Route == "" || call.RTC.ParticipantToken != "" {
+				if !ok || call.Route == "" || call.RTC.ParticipantToken != "" || call.Caller == nil || call.Caller.ID != "identity-123" {
 					t.Fatalf("public incoming call must have an opaque route without credentials: %+v", event.Params)
 				}
 			}

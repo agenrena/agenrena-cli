@@ -91,7 +91,6 @@ func (session *Session) Connect() error {
 		room.Disconnect()
 		return fmt.Errorf("publish LiveKit PCM output track: %w", err)
 	}
-
 	session.mu.Lock()
 	if session.closed {
 		session.mu.Unlock()

@@ -99,6 +99,7 @@ type IncomingCall struct {
 	CallID         string  `json:"callId"`
 	ConversationID string  `json:"conversationId"`
 	Route          string  `json:"route,omitempty"`
+	Caller         *Sender `json:"caller,omitempty"`
 	ExpiresAt      string  `json:"expiresAt"`
 	RTC            CallRTC `json:"rtc"`
 }
@@ -111,9 +112,14 @@ type CallAudioPreferences struct {
 	SampleRateHz int `json:"sampleRateHz,omitempty"`
 }
 
+type CallRealtimePreferences struct {
+	Transport string `json:"transport"`
+}
+
 type AcceptCallParams struct {
-	CallID string                `json:"callId"`
-	Audio  *CallAudioPreferences `json:"audio,omitempty"`
+	CallID   string                   `json:"callId"`
+	Audio    *CallAudioPreferences    `json:"audio,omitempty"`
+	Realtime *CallRealtimePreferences `json:"realtime,omitempty"`
 }
 
 type LeaveCallParams struct {
@@ -121,13 +127,19 @@ type LeaveCallParams struct {
 }
 
 type CallMedia struct {
-	Transport       string `json:"transport"`
-	SocketPath      string `json:"socketPath"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	Format          string `json:"format"`
-	SampleRateHz    int    `json:"sampleRateHz"`
-	Channels        int    `json:"channels"`
-	FrameDurationMS int    `json:"frameDurationMs"`
+	Transport       string             `json:"transport"`
+	SocketPath      string             `json:"socketPath"`
+	ProtocolVersion int                `json:"protocolVersion"`
+	Format          string             `json:"format"`
+	SampleRateHz    int                `json:"sampleRateHz"`
+	Channels        int                `json:"channels"`
+	FrameDurationMS int                `json:"frameDurationMs"`
+	Realtime        *CallRealtimeMedia `json:"realtime,omitempty"`
+}
+
+type CallRealtimeMedia struct {
+	Transport string `json:"transport"`
+	SDP       string `json:"sdp"`
 }
 
 type AcceptCallResult struct {

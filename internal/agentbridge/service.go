@@ -358,6 +358,7 @@ func (service *Service) consumeConnection(socket *WebSocketConnection) error {
 					params.RTC.ParticipantToken = ""
 					service.emit(Event{Method: callEvent.Method, Params: params})
 				case CancelledCall:
+					log.Printf("call %s received remote calls/cancelled event", params.CallID)
 					service.rtcManager().Cancel(params.CallID)
 					service.emit(*callEvent)
 				}
@@ -428,10 +429,23 @@ func normalizeCallEvent(event map[string]any) (*Event, bool, error) {
 	if participantToken == "" {
 		return nil, true, fmt.Errorf("incoming rtc participant_token is missing")
 	}
+	var caller *Sender
+	if callerValue, ok := payload["caller"].(map[string]any); ok {
+		callerID := strings.TrimSpace(valueString(callerValue["id"]))
+		if callerID != "" {
+			caller = &Sender{
+				ID: callerID,
+				Name: firstNonEmpty(
+					valueString(callerValue["display_name"]),
+					valueString(callerValue["name"]),
+				),
+			}
+		}
+	}
 	return &Event{
 		Method: "calls/incoming",
 		Params: IncomingCall{
-			CallID: callID, ConversationID: conversationID, ExpiresAt: expiresAt,
+			CallID: callID, ConversationID: conversationID, Caller: caller, ExpiresAt: expiresAt,
 			RTC: CallRTC{ServerURL: serverURL, ParticipantToken: participantToken},
 		},
 	}, true, nil

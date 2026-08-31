@@ -117,7 +117,7 @@ func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
 func TestServerDispatchesCallAcceptAndLeaveAfterInitialize(t *testing.T) {
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"openclaw","version":"1"},"agent":{"type":"openclaw"}}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"calls/accept","params":{"callId":"call-1","audio":{"sampleRateHz":16000}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"calls/accept","params":{"callId":"call-1","audio":{"sampleRateHz":16000},"realtime":{"transport":"webrtc"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"calls/leave","params":{"callId":"call-1"}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}`,
 	}, "\n") + "\n"
@@ -127,7 +127,8 @@ func TestServerDispatchesCallAcceptAndLeaveAfterInitialize(t *testing.T) {
 		t.Fatal(err)
 	}
 	if backend.accepted.CallID != "call-1" || backend.accepted.Audio == nil ||
-		backend.accepted.Audio.SampleRateHz != 16000 || backend.left.CallID != "call-1" {
+		backend.accepted.Audio.SampleRateHz != 16000 || backend.accepted.Realtime == nil ||
+		backend.accepted.Realtime.Transport != "webrtc" || backend.left.CallID != "call-1" {
 		t.Fatalf("accepted=%+v left=%+v", backend.accepted, backend.left)
 	}
 	lines := decodeOutputLines(t, output.String())

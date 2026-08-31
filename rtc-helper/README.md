@@ -2,8 +2,8 @@
 
 `agenrena-rtc-helper` is the optional realtime media sidecar managed by the
 Agenrena Agent Bridge. It joins the call-scoped LiveKit room and exposes PCM16
-mono 24 kHz audio to the local OpenClaw plugin over a permission-restricted Unix
-domain socket.
+mono audio to a local Agent plugin over a permission-restricted Unix domain
+socket.
 
 The standard Agenrena installer installs the helper beside the core `agenrena`
 binary on macOS and Linux. The bridge starts it only when the local Agent runtime
@@ -18,6 +18,21 @@ For calls, the Agent plugin may request 16, 24, or 48 kHz PCM in
 `calls/accept`; 24 kHz remains the default. PCM16 little-endian, mono channels,
 and 20 ms frames are fixed. The helper performs the LiveKit audio conversion in
 both directions.
+
+An Agent may additionally request `realtime.transport: "webrtc"` from
+`calls/accept`. In that mode the helper creates a second Pion peer connection
+with an Opus audio track and the `oai-events` data channel required by Codex
+realtime. The accept result carries its SDP offer. The Agent starts
+`thread/realtime/start`, then sends the returned SDP answer to the helper over
+the media socket. After negotiation, audio flows directly inside the helper:
+
+```text
+LiveKit WebRTC <-> PCM/Opus bridge <-> Codex WebRTC
+```
+
+The Unix socket remains responsible for the handshake, SDP answer, barge-in
+queue clearing, and legacy PCM mode. Codex WebRTC audio is not serialized as
+JSON or base64.
 
 The helper is a separate Go module so LiveKit, WebRTC, CGo, and libopus do not
 become dependencies of the core `agenrena` binary.

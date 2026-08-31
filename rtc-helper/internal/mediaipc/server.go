@@ -27,6 +27,15 @@ type Handler interface {
 	ClearOutgoingAudio()
 }
 
+type RealtimeHandler interface {
+	SetRealtimeAnswer(string) error
+}
+
+type RealtimeAnswer struct {
+	Type string `json:"type"`
+	SDP  string `json:"sdp"`
+}
+
 type Server struct {
 	path     string
 	listener *net.UnixListener
@@ -126,6 +135,18 @@ func (server *Server) Serve(ctx context.Context, callID string, handler Handler)
 				return errors.New("clear outgoing frame must not contain a payload")
 			}
 			handler.ClearOutgoingAudio()
+		case FrameRealtimeAnswer:
+			realtimeHandler, ok := handler.(RealtimeHandler)
+			if !ok {
+				return errors.New("realtime answer is not supported by this media session")
+			}
+			var answer RealtimeAnswer
+			if err := json.Unmarshal(frame.Payload, &answer); err != nil || answer.Type != "answer" || answer.SDP == "" {
+				return errors.New("invalid realtime answer frame")
+			}
+			if err := realtimeHandler.SetRealtimeAnswer(answer.SDP); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unexpected media frame type 0x%02x", byte(frame.Type))
 		}

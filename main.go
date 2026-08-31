@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	cliVersion     = "0.11.2"
+	cliVersion     = "0.12.0"
 	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 )
 
@@ -38,6 +38,8 @@ func run(ctx context.Context, args []string) error {
 		return runBusinesses(ctx, args[1:])
 	case "community":
 		return runCommunity(ctx, args[1:])
+	case "codex":
+		return runCodex(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
 	case "marketplace":
@@ -73,6 +75,7 @@ func run(ctx context.Context, args []string) error {
 func printUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  agenrena agent bridge --stdio")
+	fmt.Fprintln(out, "  agenrena codex bridge mcp")
 	fmt.Fprintln(out, "  agenrena auth login")
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")

@@ -16,11 +16,12 @@ const (
 type FrameType byte
 
 const (
-	FrameHello         FrameType = 0x01
-	FrameReady         FrameType = 0x02
-	FrameIncomingAudio FrameType = 0x10
-	FrameOutgoingAudio FrameType = 0x11
-	FrameClearOutgoing FrameType = 0x12
+	FrameHello          FrameType = 0x01
+	FrameReady          FrameType = 0x02
+	FrameIncomingAudio  FrameType = 0x10
+	FrameOutgoingAudio  FrameType = 0x11
+	FrameClearOutgoing  FrameType = 0x12
+	FrameRealtimeAnswer FrameType = 0x13
 )
 
 type Frame struct {

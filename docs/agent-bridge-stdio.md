@@ -293,7 +293,7 @@ Agent. Field names are normalized from the Agenrena WebSocket payload to the
 stdio protocol's camelCase convention.
 
 ```json
-{"jsonrpc":"2.0","method":"calls/incoming","params":{"callId":"call-uuid","conversationId":"conversation-uuid","route":"v1.opaque-cli-issued-route","expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://project.livekit.cloud"}}}
+{"jsonrpc":"2.0","method":"calls/incoming","params":{"callId":"call-uuid","conversationId":"conversation-uuid","route":"v1.opaque-cli-issued-route","caller":{"id":"identity-uuid","name":"Kai"},"expiresAt":"2026-08-12T12:00:30+00:00","rtc":{"serverUrl":"wss://project.livekit.cloud"}}}
 ```
 
 Fields:
@@ -303,6 +303,8 @@ Fields:
 | `callId` | yes | Stable call ID; receivers use it for idempotency. |
 | `conversationId` | yes | Agenrena conversation associated with the call. |
 | `route` | yes | Opaque CLI-issued route used for OpenClaw session continuity. |
+| `caller.id` | no | Stable authenticated Agenrena caller Identity ID. Missing callers are unverified. |
+| `caller.name` | no | Caller display name; never an authorization signal. |
 | `expiresAt` | yes | RFC 3339 invitation deadline supplied by Agenrena. |
 | `rtc.serverUrl` | yes | LiveKit WebSocket server URL. |
 
@@ -325,6 +327,27 @@ omitting it selects `24000`. PCM format, mono channels, and 20 ms frame duration
 are fixed in protocol version 1. An unsupported rate returns
 `MEDIA_FORMAT_UNSUPPORTED` without consuming the call invitation.
 
+To ask the RTC helper to own a second Codex-compatible WebRTC peer connection,
+include `realtime.transport`:
+
+```json
+{"jsonrpc":"2.0","id":4,"method":"calls/accept","params":{"callId":"call-uuid","audio":{"sampleRateHz":24000},"realtime":{"transport":"webrtc"}}}
+```
+
+The optional realtime response contains the helper-generated SDP offer:
+
+```json
+{"jsonrpc":"2.0","id":4,"result":{"callId":"call-uuid","media":{"transport":"unix-socket","socketPath":"/tmp/agenrena-rtc-abc/media.sock","protocolVersion":1,"format":"pcm_s16le","sampleRateHz":24000,"channels":1,"frameDurationMs":20,"realtime":{"transport":"webrtc","sdp":"v=0\r\n..."}}}}
+```
+
+The caller passes that offer to Codex app-server
+`thread/realtime/start` with `transport.type: "webrtc"`. After receiving
+`thread/realtime/sdp`, it sends a `0x13` socket frame containing
+`{"type":"answer","sdp":"..."}`. The helper applies the answer and bridges
+LiveKit audio directly to and from the Codex peer. The app-server remains the
+signaling and sideband-control path; PCM does not cross the Agent process in
+this mode.
+
 The response describes a local binary PCM connection. No audio is transported
 as JSON or base64:
 
@@ -335,8 +358,9 @@ as JSON or base64:
 The socket uses a five-byte frame header: one byte of frame type followed by a
 four-byte unsigned big-endian payload length. Frame types are `0x01` hello,
 `0x02` ready, `0x10` incoming/user PCM, `0x11` outgoing/Agent PCM, and `0x12`
-clear outgoing audio. Hello and ready payloads are small JSON handshakes; audio
-payloads are raw PCM16 little-endian bytes.
+clear outgoing audio. Optional frame `0x13` carries the Codex WebRTC SDP answer.
+Hello, ready, and SDP payloads are small JSON handshakes; audio payloads are raw
+PCM16 little-endian bytes.
 
 ### `calls/leave`
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -49,22 +50,24 @@ type RTCHelperManager struct {
 }
 
 type rtcHelperConfig struct {
-	ProtocolVersion  int    `json:"protocolVersion"`
-	CallID           string `json:"callId"`
-	ServerURL        string `json:"serverUrl"`
-	ParticipantToken string `json:"participantToken"`
-	SocketPath       string `json:"socketPath"`
-	SampleRateHz     int    `json:"sampleRateHz"`
+	ProtocolVersion   int    `json:"protocolVersion"`
+	CallID            string `json:"callId"`
+	ServerURL         string `json:"serverUrl"`
+	ParticipantToken  string `json:"participantToken"`
+	SocketPath        string `json:"socketPath"`
+	SampleRateHz      int    `json:"sampleRateHz"`
+	RealtimeTransport string `json:"realtimeTransport,omitempty"`
 }
 
 type rtcHelperReady struct {
-	Type            string `json:"type"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	SocketPath      string `json:"socketPath"`
-	Format          string `json:"format"`
-	SampleRateHz    int    `json:"sampleRateHz"`
-	Channels        int    `json:"channels"`
-	FrameDurationMS int    `json:"frameDurationMs"`
+	Type            string             `json:"type"`
+	ProtocolVersion int                `json:"protocolVersion"`
+	SocketPath      string             `json:"socketPath"`
+	Format          string             `json:"format"`
+	SampleRateHz    int                `json:"sampleRateHz"`
+	Channels        int                `json:"channels"`
+	FrameDurationMS int                `json:"frameDurationMs"`
+	Realtime        *CallRealtimeMedia `json:"realtime,omitempty"`
 }
 
 func NewRTCHelperManager(config RTCHelperManagerConfig) *RTCHelperManager {
@@ -94,13 +97,15 @@ func (manager *RTCHelperManager) Remember(call IncomingCall) {
 func (manager *RTCHelperManager) Cancel(callID string) {
 	manager.mu.Lock()
 	delete(manager.invitations, callID)
-	if _, accepting := manager.accepting[callID]; accepting {
+	_, accepting := manager.accepting[callID]
+	if accepting {
 		manager.cancelled[callID] = struct{}{}
 	}
 	starting := manager.starting[callID]
 	process := manager.active[callID]
 	delete(manager.active, callID)
 	manager.mu.Unlock()
+	log.Printf("call %s remote cancellation applied (accepting=%t starting=%t active=%t)", callID, accepting, starting != nil, process != nil)
 	if starting != nil {
 		starting.cancel()
 	}
@@ -126,6 +131,17 @@ func (manager *RTCHelperManager) Accept(ctx context.Context, params AcceptCallPa
 			"audio.sampleRateHz must be one of 16000, 24000, or 48000",
 			false,
 		)
+	}
+	realtimeTransport := ""
+	if params.Realtime != nil {
+		realtimeTransport = strings.TrimSpace(params.Realtime.Transport)
+		if realtimeTransport != "webrtc" {
+			return AcceptCallResult{}, bridgeError(
+				"MEDIA_TRANSPORT_UNSUPPORTED",
+				"realtime.transport must be webrtc",
+				false,
+			)
+		}
 	}
 	manager.mu.Lock()
 	if manager.closed {
@@ -209,6 +225,7 @@ func (manager *RTCHelperManager) Accept(ctx context.Context, params AcceptCallPa
 		ProtocolVersion: rtcHelperProtocolVersion, CallID: callID,
 		ServerURL: invitation.RTC.ServerURL, ParticipantToken: invitation.RTC.ParticipantToken,
 		SocketPath: socketPath, SampleRateHz: sampleRateHz,
+		RealtimeTransport: realtimeTransport,
 	}
 	if err := json.NewEncoder(stdin).Encode(encoded); err != nil {
 		_ = stdin.Close()
@@ -259,6 +276,17 @@ func (manager *RTCHelperManager) Accept(ctx context.Context, params AcceptCallPa
 		manager.stopProcess(process)
 		return AcceptCallResult{}, bridgeError("RTC_HELPER_FAILED", "RTC helper returned an unsupported media contract", false)
 	}
+	if realtimeTransport == "webrtc" {
+		if ready.Realtime == nil || ready.Realtime.Transport != "webrtc" || strings.TrimSpace(ready.Realtime.SDP) == "" {
+			manager.removeStarting(callID, process)
+			manager.stopProcess(process)
+			return AcceptCallResult{}, bridgeError("RTC_HELPER_FAILED", "RTC helper did not return a WebRTC offer", false)
+		}
+	} else if ready.Realtime != nil {
+		manager.removeStarting(callID, process)
+		manager.stopProcess(process)
+		return AcceptCallResult{}, bridgeError("RTC_HELPER_FAILED", "RTC helper returned an unexpected realtime contract", false)
+	}
 
 	manager.mu.Lock()
 	delete(manager.starting, callID)
@@ -276,7 +304,7 @@ func (manager *RTCHelperManager) Accept(ctx context.Context, params AcceptCallPa
 		Transport: "unix-socket", SocketPath: ready.SocketPath,
 		ProtocolVersion: ready.ProtocolVersion, Format: ready.Format,
 		SampleRateHz: ready.SampleRateHz, Channels: ready.Channels,
-		FrameDurationMS: ready.FrameDurationMS,
+		FrameDurationMS: ready.FrameDurationMS, Realtime: ready.Realtime,
 	}}, nil
 }
 
@@ -362,6 +390,7 @@ func (manager *RTCHelperManager) monitor(process *rtcHelperProcess) {
 		delete(manager.active, process.callID)
 	}
 	manager.mu.Unlock()
+	log.Printf("call %s RTC helper process exited (active=%t error=%v)", process.callID, active, err)
 	if active && manager.config.Notify != nil {
 		reason := "rtc_helper_closed"
 		if err != nil && !errors.Is(err, context.Canceled) {

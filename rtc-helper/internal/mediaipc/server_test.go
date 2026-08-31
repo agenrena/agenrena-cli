@@ -13,6 +13,7 @@ import (
 type recordingHandler struct {
 	audio   chan []byte
 	cleared chan struct{}
+	answer  chan string
 }
 
 func (handler *recordingHandler) WriteOutgoingAudio(payload []byte) error {
@@ -22,6 +23,11 @@ func (handler *recordingHandler) WriteOutgoingAudio(payload []byte) error {
 
 func (handler *recordingHandler) ClearOutgoingAudio() {
 	handler.cleared <- struct{}{}
+}
+
+func (handler *recordingHandler) SetRealtimeAnswer(sdp string) error {
+	handler.answer <- sdp
+	return nil
 }
 
 func TestServerHandshakeAndBidirectionalAudio(t *testing.T) {
@@ -37,7 +43,7 @@ func TestServerHandshakeAndBidirectionalAudio(t *testing.T) {
 	}
 	defer server.Close()
 
-	handler := &recordingHandler{audio: make(chan []byte, 1), cleared: make(chan struct{}, 1)}
+	handler := &recordingHandler{audio: make(chan []byte, 1), cleared: make(chan struct{}, 1), answer: make(chan string, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	served := make(chan error, 1)
@@ -86,6 +92,19 @@ func TestServerHandshakeAndBidirectionalAudio(t *testing.T) {
 	case <-handler.cleared:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for clear")
+	}
+
+	answer, _ := json.Marshal(RealtimeAnswer{Type: "answer", SDP: "v=0\r\n"})
+	if err := WriteFrame(conn, FrameRealtimeAnswer, answer); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-handler.answer:
+		if got != "v=0\r\n" {
+			t.Fatalf("answer=%q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for realtime answer")
 	}
 
 	_ = conn.Close()
