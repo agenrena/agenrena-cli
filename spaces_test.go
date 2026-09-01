@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 const (
@@ -238,8 +240,8 @@ func TestSpaceAPIContracts(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer agr_test" {
 			t.Errorf("Authorization = %q, want Bearer agr_test", request.Header.Get("Authorization"))
 		}
-		if request.Header.Get("User-Agent") != "agenrena-cli/"+cliVersion {
-			t.Errorf("User-Agent = %q, want agenrena-cli/%s", request.Header.Get("User-Agent"), cliVersion)
+		if request.Header.Get("User-Agent") != "agenrena-cli/"+buildinfo.Version {
+			t.Errorf("User-Agent = %q, want agenrena-cli/%s", request.Header.Get("User-Agent"), buildinfo.Version)
 		}
 
 		var body map[string]any

@@ -12,6 +12,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 type APIClient struct {
@@ -66,7 +68,7 @@ func (c *APIClient) doJSON(ctx context.Context, method, endpoint string, body an
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
+	req.Header.Set("User-Agent", "agenrena-cli/"+buildinfo.Version)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -205,7 +207,7 @@ func uploadMultipart(ctx context.Context, uploadURL string, fields map[string]st
 		return err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
+	req.Header.Set("User-Agent", "agenrena-cli/"+buildinfo.Version)
 
 	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)
@@ -230,7 +232,7 @@ func uploadPUT(ctx context.Context, uploadURL string, contentType string, conten
 		return err
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
+	req.Header.Set("User-Agent", "agenrena-cli/"+buildinfo.Version)
 
 	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)

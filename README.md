@@ -65,8 +65,9 @@ notifications come from stdout, and logs stay on stderr. The bridge loads the
 credential created by `agenrena auth login`, connects and reconnects the
 Agenrena WebSocket, normalizes text/image/sticker events, materializes inbound
 images as local files, sends text or images back through the REST API, and
-hands a conversation back to its human owner when the agent should stop
-answering.
+publishes transient Agent turn progress over the same authenticated WebSocket.
+Final durable replies still use REST. The bridge also hands a conversation back
+to its human owner when the agent should stop answering.
 
 The versioned plugin contract, lifecycle, route format, limits, errors, and
 examples are documented in

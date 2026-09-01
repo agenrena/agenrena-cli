@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 const testPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -44,7 +46,7 @@ func TestConfigureStoresWorkspaceOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config != (fileConfig{Version: 2, Workspace: workspace}) {
+	if config != (fileConfig{Version: configSchemaVersion, Workspace: workspace}) {
 		t.Fatalf("config = %#v", config)
 	}
 }
@@ -138,6 +140,23 @@ func TestMCPListsToolsAndConfiguresWorkspace(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
 	if len(lines) != 3 {
 		t.Fatalf("responses = %d\n%s", len(lines), output.String())
+	}
+	var initialized struct {
+		Result struct {
+			ServerInfo struct {
+				Version string `json:"version"`
+			} `json:"serverInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &initialized); err != nil {
+		t.Fatal(err)
+	}
+	if initialized.Result.ServerInfo.Version != buildinfo.Version {
+		t.Fatalf(
+			"MCP version = %q, want CLI version %q",
+			initialized.Result.ServerInfo.Version,
+			buildinfo.Version,
+		)
 	}
 	var listed struct {
 		Result struct {
@@ -255,14 +274,20 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 		Workspace: root, CodexCommand: []string{os.Args[0], "-test.run=TestCodexHelperProcess"},
 		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
 	}}
-	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: "same", Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context) error { return nil })
+	var progress []turnProgress
+	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: "same", Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context) error { return nil }, func(update turnProgress) {
+		progress = append(progress, update)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Text != "final reply" || first.ThreadID != "shared-thread" {
 		t.Fatalf("first result = %#v", first)
 	}
-	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: "same", Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context) error { return nil }); err != nil {
+	if len(progress) < 2 || progress[0].Status != "thinking" || progress[len(progress)-1].Stage != "final_answer" {
+		t.Fatalf("progress = %#v", progress)
+	}
+	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: "same", Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context) error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(capture)
@@ -297,7 +322,7 @@ func TestCodexRunnerHandoffAndImageOutput(t *testing.T) {
 	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-image", Route: "opaque", Text: "human please"}, "", func(context.Context) error {
 		calls++
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

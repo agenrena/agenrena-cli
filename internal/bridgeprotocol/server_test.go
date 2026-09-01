@@ -15,6 +15,7 @@ type fakeBackend struct {
 	fatal      chan *agentbridge.RPCError
 	initialize agentbridge.InitializeParams
 	sent       agentbridge.SendParams
+	turnUpdate agentbridge.TurnUpdateParams
 	handedOff  agentbridge.HandoffParams
 	accepted   agentbridge.AcceptCallParams
 	left       agentbridge.LeaveCallParams
@@ -40,6 +41,11 @@ func (backend *fakeBackend) Initialize(_ context.Context, params agentbridge.Ini
 func (backend *fakeBackend) Send(_ context.Context, params agentbridge.SendParams) (agentbridge.SendResult, error) {
 	backend.sent = params
 	return agentbridge.SendResult{MessageID: "out", ClientMessageID: params.ClientMessageID}, nil
+}
+
+func (backend *fakeBackend) UpdateTurn(_ context.Context, params agentbridge.TurnUpdateParams) (agentbridge.TurnUpdateResult, error) {
+	backend.turnUpdate = params
+	return agentbridge.TurnUpdateResult{Accepted: true}, nil
 }
 
 func (backend *fakeBackend) Handoff(_ context.Context, params agentbridge.HandoffParams) (agentbridge.HandoffResult, error) {
@@ -111,6 +117,27 @@ func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
 	result, ok := lines[2]["result"].(map[string]any)
 	if !ok || result["responder"] != "human" {
 		t.Fatalf("handoff response=%v", lines[2])
+	}
+}
+
+func TestServerDispatchesTurnUpdateAfterInitialize(t *testing.T) {
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"codex","version":"1"},"agent":{"type":"codex"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"turns/update","params":{"route":"v1.route","replyTo":"message-1","turnId":"turn-1","sequence":2,"status":"thinking","stage":"reasoning"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}`,
+	}, "\n") + "\n"
+	backend := newFakeBackend()
+	var output bytes.Buffer
+	if err := NewServer(strings.NewReader(input), &output, backend).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if backend.turnUpdate.TurnID != "turn-1" || backend.turnUpdate.Status != "thinking" {
+		t.Fatalf("turn update=%+v", backend.turnUpdate)
+	}
+	lines := decodeOutputLines(t, output.String())
+	result, ok := lines[2]["result"].(map[string]any)
+	if !ok || result["accepted"] != true {
+		t.Fatalf("turn update response=%v", lines[2])
 	}
 }
 

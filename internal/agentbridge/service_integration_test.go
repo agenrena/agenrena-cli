@@ -170,6 +170,46 @@ func TestServiceCarriesImageMessageFromWebSocketToRESTReply(t *testing.T) {
 	}
 }
 
+func TestServicePublishesAgenrenaTurnUpdateOverAgentWebSocket(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+	service := NewService(Config{})
+	service.initialized = true
+	service.socket = NewWebSocketConnection(clientConn, bufio.NewReader(clientConn), 4096)
+
+	route, err := EncodeRoute(Route{
+		Source: "agenrena", ChatID: "conversation-1", ConversationID: "conversation-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, updateErr := service.UpdateTurn(context.Background(), TurnUpdateParams{
+			Route: route, ReplyTo: "message-1", TurnID: "turn-1",
+			Sequence: 2, Status: "thinking", Stage: "reasoning",
+		})
+		done <- updateErr
+	}()
+
+	payload := readClientFramePayload(serverConn)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var event map[string]any
+	if err := json.Unmarshal(payload, &event); err != nil {
+		t.Fatal(err)
+	}
+	if event["domain"] != "agent_turn" || event["action"] != "update" {
+		t.Fatalf("event=%v", event)
+	}
+	progress, _ := event["payload"].(map[string]any)
+	if progress["conversation_id"] != "conversation-1" || progress["turn_id"] != "turn-1" {
+		t.Fatalf("progress=%v", progress)
+	}
+}
+
 func writeExtendedServerFrame(writer io.Writer, payload []byte) {
 	header := []byte{0x81}
 	switch {

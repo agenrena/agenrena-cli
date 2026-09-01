@@ -13,16 +13,16 @@ import (
 )
 
 const (
-	Version               = "1.0.0"
-	ProtocolVersion       = 1
-	configVersion         = 2
-	threadToolsVersion    = 1
-	maxCompletedIDs       = 5000
-	maxOutboundMediaCount = 9
-	maxOutboundMediaBytes = 20 * 1024 * 1024
-	maxTotalOutboundMedia = 50 * 1024 * 1024
-	defaultTurnTimeout    = 15 * time.Minute
-	handoffToolName       = "handoff_to_human"
+	agentBridgeProtocolVersion = 1
+	configSchemaVersion        = 2
+	threadToolsSchemaVersion   = 2
+	maxCompletedIDs            = 5000
+	maxOutboundMediaCount      = 9
+	maxOutboundMediaBytes      = 20 * 1024 * 1024
+	maxTotalOutboundMedia      = 50 * 1024 * 1024
+	defaultTurnTimeout         = 15 * time.Minute
+	handoffToolName            = "handoff_to_human"
+	attachImageToolName        = "attach_image"
 )
 
 type fileConfig struct {
@@ -147,7 +147,7 @@ func Configure(workspace string) (map[string]any, error) {
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("the requested Codex workspace is not a directory: %s", resolved)
 	}
-	if err := atomicWriteJSON(ConfigPath(), fileConfig{Version: configVersion, Workspace: resolved}); err != nil {
+	if err := atomicWriteJSON(ConfigPath(), fileConfig{Version: configSchemaVersion, Workspace: resolved}); err != nil {
 		return nil, err
 	}
 	return map[string]any{
@@ -163,7 +163,7 @@ func CurrentPublicConfig() (PublicConfig, error) {
 	if err != nil {
 		return PublicConfig{}, err
 	}
-	configured := config.Version == configVersion && config.Workspace != ""
+	configured := config.Version == configSchemaVersion && config.Workspace != ""
 	workspace := any(nil)
 	if configured {
 		workspace = config.Workspace
@@ -192,7 +192,7 @@ func LoadSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	if config.Version != configVersion || config.Workspace == "" {
+	if config.Version != configSchemaVersion || config.Workspace == "" {
 		return Settings{}, errors.New("the bridge is not configured for plugin 1.0. Call agenrena_bridge_setup first")
 	}
 	timeout := defaultTurnTimeout

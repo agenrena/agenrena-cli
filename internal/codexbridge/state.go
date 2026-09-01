@@ -51,7 +51,7 @@ func NewStateStore(path string) *StateStore {
 
 func freshState() stateData {
 	return stateData{
-		Version: configVersion, ThreadToolsVersion: threadToolsVersion,
+		Version: configSchemaVersion, ThreadToolsVersion: threadToolsSchemaVersion,
 		Sessions: make(map[string]string), PendingReplies: make(map[string]Reply),
 		CompletedMessageIDs: []string{},
 	}
@@ -64,11 +64,11 @@ func (store *StateStore) Load() error {
 	if err := readJSON(store.path, &loaded); err != nil {
 		return err
 	}
-	if loaded.Version != configVersion {
+	if loaded.Version != configSchemaVersion {
 		store.data = freshState()
 		return nil
 	}
-	if loaded.Sessions == nil || loaded.ThreadToolsVersion != threadToolsVersion {
+	if loaded.Sessions == nil || loaded.ThreadToolsVersion != threadToolsSchemaVersion {
 		loaded.Sessions = make(map[string]string)
 	}
 	if loaded.PendingReplies == nil {
@@ -77,8 +77,8 @@ func (store *StateStore) Load() error {
 	if loaded.CompletedMessageIDs == nil {
 		loaded.CompletedMessageIDs = []string{}
 	}
-	loaded.Version = configVersion
-	loaded.ThreadToolsVersion = threadToolsVersion
+	loaded.Version = configSchemaVersion
+	loaded.ThreadToolsVersion = threadToolsSchemaVersion
 	store.data = loaded
 	return nil
 }

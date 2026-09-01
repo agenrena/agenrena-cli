@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 const (
@@ -26,7 +28,7 @@ type updateInfo struct {
 
 func checkForUpdate(ctx context.Context) updateInfo {
 	info := updateInfo{
-		CurrentVersion: cliVersion,
+		CurrentVersion: buildinfo.Version,
 		InstallCommand: installCommand,
 	}
 
@@ -39,7 +41,7 @@ func checkForUpdate(ctx context.Context) updateInfo {
 		return info
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "agenrena-cli/"+cliVersion)
+	req.Header.Set("User-Agent", "agenrena-cli/"+buildinfo.Version)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -64,7 +66,7 @@ func checkForUpdate(ctx context.Context) updateInfo {
 	latest := normalizeVersion(body.TagName)
 	info.LatestVersion = latest
 	info.ReleaseURL = body.HTMLURL
-	if compareSemver(latest, cliVersion) > 0 {
+	if compareSemver(latest, buildinfo.Version) > 0 {
 		info.Available = true
 	}
 	return info

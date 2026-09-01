@@ -1,8 +1,13 @@
 # Release
 
-The source of truth for the CLI binary version is `cliVersion` in `main.go`.
+The source of truth for the whole CLI binary version is `buildinfo.Version` in
+`internal/buildinfo/version.go`.
 Release tags should match that version with a leading `v`, for example
-`cliVersion = "0.4.1"` pairs with tag `v0.4.1`.
+`buildinfo.Version = "0.13.0"` pairs with tag `v0.13.0`.
+
+Do not use protocol, route, media, persisted-state schema, or plugin cachebuster
+versions as CLI release versions. Feature availability is negotiated through
+capability flags such as `turnUpdates`, not inferred from the release version.
 
 Useful release commands:
 
@@ -22,7 +27,7 @@ make release
 ```
 
 `make release` runs checks, verifies the working tree is clean, creates the
-`v<cliVersion>` tag if needed, pushes `main`, and pushes the tag. The tag push
+matching `v<version>` tag if needed, pushes `main`, and pushes the tag. The tag push
 should trigger GitHub Actions to build the assets consumed by `install.sh`:
 
 ```text

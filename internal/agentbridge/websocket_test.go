@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"net"
 	"testing"
@@ -34,6 +35,32 @@ func TestWebSocketHandlesPingAndFragmentedText(t *testing.T) {
 	}
 }
 
+func TestWebSocketSendsMaskedJSONText(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	socket := NewWebSocketConnection(clientConn, bufio.NewReader(clientConn), 1024)
+	defer socket.Close()
+	defer serverConn.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- socket.SendJSON(context.Background(), map[string]any{
+			"domain":   "agent_turn",
+			"sequence": 2,
+		})
+	}()
+	payload := readClientFramePayload(serverConn)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	if value["domain"] != "agent_turn" || value["sequence"] != float64(2) {
+		t.Fatalf("payload=%v", value)
+	}
+}
+
 func writeServerFrame(writer io.Writer, final bool, opcode byte, payload []byte) {
 	first := opcode
 	if final {
@@ -44,6 +71,10 @@ func writeServerFrame(writer io.Writer, final bool, opcode byte, payload []byte)
 }
 
 func readClientFrame(reader io.Reader) {
+	_ = readClientFramePayload(reader)
+}
+
+func readClientFramePayload(reader io.Reader) []byte {
 	header := make([]byte, 2)
 	_, _ = io.ReadFull(reader, header)
 	length := int(header[1] & 0x7f)
@@ -56,4 +87,8 @@ func readClientFrame(reader io.Reader) {
 	_, _ = io.ReadFull(reader, mask)
 	payload := make([]byte, length)
 	_, _ = io.ReadFull(reader, payload)
+	for index := range payload {
+		payload[index] ^= mask[index%4]
+	}
+	return payload
 }

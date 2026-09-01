@@ -12,6 +12,7 @@ import (
 
 	"github.com/agenrena/agenrena-cli/internal/agentbridge"
 	"github.com/agenrena/agenrena-cli/internal/bridgeprotocol"
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 func runAgent(ctx context.Context, args []string) error {
@@ -47,7 +48,7 @@ func runAgentBridge(ctx context.Context) error {
 	localDevelopment := parsedAPI != nil && isLoopbackAddress(parsedAPI.Hostname())
 	service := agentbridge.NewService(agentbridge.Config{
 		APIBase: apiBase, WSURL: wsURL, StateDir: stateDir,
-		ServerVersion: cliVersion, UserAgent: "agenrena-agent-bridge/" + cliVersion,
+		ServerVersion: buildinfo.Version, UserAgent: "agenrena-agent-bridge/" + buildinfo.Version,
 		APIKeyLoader: func() (string, error) {
 			credentials, err := loadCredentials()
 			if err != nil {

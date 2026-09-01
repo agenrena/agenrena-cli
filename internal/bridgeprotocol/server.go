@@ -18,6 +18,7 @@ const maxProtocolLineBytes = 8 * 1024 * 1024
 type Backend interface {
 	Initialize(context.Context, agentbridge.InitializeParams, func(agentbridge.Event)) (agentbridge.InitializeResult, error)
 	Send(context.Context, agentbridge.SendParams) (agentbridge.SendResult, error)
+	UpdateTurn(context.Context, agentbridge.TurnUpdateParams) (agentbridge.TurnUpdateResult, error)
 	Handoff(context.Context, agentbridge.HandoffParams) (agentbridge.HandoffResult, error)
 	AcceptCall(context.Context, agentbridge.AcceptCallParams) (agentbridge.AcceptCallResult, error)
 	LeaveCall(context.Context, agentbridge.LeaveCallParams) (agentbridge.LeaveCallResult, error)
@@ -127,6 +128,24 @@ func (server *Server) Run(ctx context.Context) error {
 				if err != nil {
 					rpcErr := toRPCError(err)
 					_ = server.writer.write(errorResponse(request.ID, -32000, rpcErr.Message, rpcErr))
+					continue
+				}
+				if err := server.writer.write(resultResponse(request.ID, result)); err != nil {
+					return err
+				}
+			case "turns/update":
+				if !initialized {
+					server.writeNotInitialized(request.ID, "turns/update")
+					continue
+				}
+				var params agentbridge.TurnUpdateParams
+				if err := decodeParams(request.Params, &params); err != nil {
+					server.writeInvalidParams(request.ID, err)
+					continue
+				}
+				result, err := server.backend.UpdateTurn(ctx, params)
+				if err != nil {
+					server.writeBackendError(request.ID, err)
 					continue
 				}
 				if err := server.writer.write(resultResponse(request.ID, result)); err != nil {

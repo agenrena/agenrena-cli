@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 func runDoctor(ctx context.Context, args []string) error {
@@ -11,7 +13,7 @@ func runDoctor(ctx context.Context, args []string) error {
 
 	update := checkForUpdate(ctx)
 	result := map[string]any{
-		"cli_version": cliVersion,
+		"cli_version": buildinfo.Version,
 		"api_base":    apiBaseFromEnv(),
 		"update":      update,
 	}

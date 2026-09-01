@@ -1,6 +1,7 @@
 # Agenrena Agent Bridge stdio Protocol
 
-Status: implemented v1 contract in Agenrena CLI 0.9.0.
+Status: implemented v1 contract. The current CLI release version is reported by
+`agenrena version` and `serverInfo.version`.
 
 This protocol lets an agent runtime use the Agenrena CLI as its authenticated
 transport without linking an Agenrena SDK or handling WebSocket, REST, retry,
@@ -64,6 +65,14 @@ An ordinary failed RPC request does not terminate the bridge.
 
 ## Version Negotiation
 
+The CLI release version and protocol version are separate:
+
+- `serverInfo.version` is the version of the whole Agenrena CLI binary.
+- `protocolVersion` changes only for a breaking wire-contract change.
+- Optional features are negotiated with capability flags. For example, clients
+  must use `capabilities.turnUpdates`, not a CLI version comparison, to decide
+  whether `turns/update` is available.
+
 Protocol version is negotiated by `initialize`. Version 1 follows these rules:
 
 - Peers must ignore unknown object fields.
@@ -86,7 +95,7 @@ Initializes the bridge and declares the runtime using it.
 Request:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"openclaw-agenrena","version":"1.0.0"},"agent":{"type":"openclaw","slashCommands":[]},"capabilities":{"inboundMedia":true,"outboundMedia":true,"calls":true}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"openclaw-agenrena","version":"1.0.0"},"agent":{"type":"openclaw","slashCommands":[]},"capabilities":{"inboundMedia":true,"outboundMedia":true,"calls":true,"turnUpdates":true}}}
 ```
 
 Fields:
@@ -101,6 +110,7 @@ Fields:
 | `capabilities.inboundMedia` | no | Plugin can consume local inbound media paths. Default is false. |
 | `capabilities.outboundMedia` | no | Plugin may send media through `messages/send`. Default is false. |
 | `capabilities.calls` | no | Plugin can consume call lifecycle events and local PCM media. Default is false. |
+| `capabilities.turnUpdates` | no | Plugin may publish transient turn lifecycle and progress events through `turns/update`. Default is false. |
 
 Slash command objects may contain `name`, `description`, `aliases`, `argsHint`,
 and `subcommands`. The CLI transports this metadata but does not interpret
@@ -109,12 +119,48 @@ agent command behavior.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.9.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true,"calls":true}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.13.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true,"calls":true,"turnUpdates":true}}}
 ```
 
 An agent-metadata registration failure may be returned as a warning when the
 WebSocket connection is otherwise usable. Authentication, lock acquisition,
 and WebSocket handshake failures fail initialization.
+
+### `turns/update`
+
+Publishes transient progress for one Agent turn. This does not create a chat
+message, affect unread counts, or replace the final `messages/send` request.
+The generic bridge forwards Agenrena routes over the authenticated Agent
+WebSocket; updates for external-platform routes are accepted as unsupported
+and are not forwarded.
+
+Request:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"turns/update","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0","replyTo":"msg_123","turnId":"codex-msg_123","sequence":1725183000000001,"status":"thinking","stage":"reasoning"}}
+```
+
+Fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `route` | yes | Opaque route issued with the inbound message. |
+| `replyTo` | no | Inbound message ID that started the turn. |
+| `turnId` | yes | Stable turn correlation ID, at most 128 characters. |
+| `sequence` | yes | Positive, monotonically increasing value for deduplication and ordering. |
+| `status` | yes | `started`, `thinking`, `tool_running`, `streaming`, `retrying`, `completed`, `failed`, `interrupted`, or `timeout`. |
+| `stage` | no | Sanitized UI stage such as `reasoning`, `web_search`, or `delivery`. |
+| `delta` | no | User-safe commentary delta, at most 2048 bytes. Raw reasoning and tool output must not be sent. |
+| `messageId` | conditional | Persisted Agenrena message ID; required for `completed`. |
+
+Successful response:
+
+```json
+{"jsonrpc":"2.0","id":2,"result":{"accepted":true}}
+```
+
+Turn updates are best-effort UI state. A failed progress request must not stop
+the Agent from producing and delivering its final durable reply.
 
 ### `messages/send`
 
@@ -491,15 +537,15 @@ response blocks unrelated notifications.
 ## v1 Scope
 
 Version 1 includes text, images, stickers as inbound images, reply context,
-agent metadata registration, connection status, text/image sending, and
-returning a conversation to its human owner.
+agent metadata registration, connection status, transient turn lifecycle
+updates, text/image sending, and returning a conversation to its human owner.
 
 Version 1 deliberately excludes:
 
 - multiple plugins sharing one bridge process;
 - a global daemon, local HTTP server, or Unix socket;
 - event acknowledgement and replay control;
-- typing indicators;
+- generic chat typing indicators unrelated to an Agent turn;
 - message edit, delete, and reaction operations;
 - audio, video, and document upload;
 - binary stdio frames;

@@ -26,6 +26,7 @@ type ClientCapabilities struct {
 	InboundMedia  bool `json:"inboundMedia,omitempty"`
 	OutboundMedia bool `json:"outboundMedia,omitempty"`
 	Calls         bool `json:"calls,omitempty"`
+	TurnUpdates   bool `json:"turnUpdates,omitempty"`
 }
 
 type InitializeParams struct {
@@ -46,6 +47,7 @@ type ServerCapabilities struct {
 	MessageTypes  []string `json:"messageTypes"`
 	Handoff       bool     `json:"handoff"`
 	Calls         bool     `json:"calls"`
+	TurnUpdates   bool     `json:"turnUpdates"`
 }
 
 type InitializeResult struct {
@@ -182,6 +184,21 @@ type SendResult struct {
 	MessageID       string   `json:"messageId"`
 	MessageIDs      []string `json:"messageIds,omitempty"`
 	ClientMessageID string   `json:"clientMessageId"`
+}
+
+type TurnUpdateParams struct {
+	Route     string `json:"route"`
+	ReplyTo   string `json:"replyTo,omitempty"`
+	TurnID    string `json:"turnId"`
+	Sequence  int64  `json:"sequence"`
+	Status    string `json:"status"`
+	Stage     string `json:"stage,omitempty"`
+	Delta     string `json:"delta,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+}
+
+type TurnUpdateResult struct {
+	Accepted bool `json:"accepted"`
 }
 
 type HandoffParams struct {

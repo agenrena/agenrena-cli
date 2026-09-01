@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 type mcpTool struct {
@@ -81,7 +83,7 @@ func handleMCP(_ context.Context, request rpcMessage) (any, error) {
 		return map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": Version},
+			"serverInfo":      map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": buildinfo.Version},
 		}, nil
 	case "ping":
 		return map[string]any{}, nil

@@ -164,10 +164,91 @@ func (service *Service) Initialize(ctx context.Context, params InitializeParams,
 		Capabilities: ServerCapabilities{
 			InboundMedia: true, OutboundMedia: true,
 			MessageTypes: []string{"text", "image", "sticker"},
-			Handoff:      true, Calls: true,
+			Handoff:      true, Calls: true, TurnUpdates: true,
 		},
 		Warnings: warnings,
 	}, nil
+}
+
+func (service *Service) UpdateTurn(ctx context.Context, params TurnUpdateParams) (TurnUpdateResult, error) {
+	route, err := DecodeRoute(params.Route)
+	if err != nil {
+		return TurnUpdateResult{}, err
+	}
+	conversationID := route.ConversationID
+	source := route.Source
+	if source == "" && conversationID != "" {
+		source = "agenrena"
+	}
+	if conversationID == "" && source == "agenrena" {
+		conversationID = route.ChatID
+	}
+	if source != "agenrena" || conversationID == "" {
+		return TurnUpdateResult{Accepted: false}, nil
+	}
+	if err := validateTurnUpdate(params); err != nil {
+		return TurnUpdateResult{}, err
+	}
+
+	service.mu.Lock()
+	socket := service.socket
+	initialized := service.initialized && !service.closed
+	service.mu.Unlock()
+	if !initialized || socket == nil {
+		return TurnUpdateResult{}, bridgeError("NOT_INITIALIZED", "bridge is not connected", true)
+	}
+
+	payload := map[string]any{
+		"conversation_id":     conversationID,
+		"reply_to_message_id": emptyAsNil(params.ReplyTo),
+		"turn_id":             params.TurnID,
+		"sequence":            params.Sequence,
+		"status":              params.Status,
+		"stage":               params.Stage,
+		"delta":               params.Delta,
+		"message_id":          emptyAsNil(params.MessageID),
+	}
+	event := map[string]any{
+		"domain":  "agent_turn",
+		"action":  "update",
+		"payload": payload,
+	}
+	if err := socket.SendJSON(ctx, event); err != nil {
+		_ = socket.Close()
+		return TurnUpdateResult{}, wrapBridgeError("NETWORK_ERROR", "could not publish Agent turn progress", true, err)
+	}
+	return TurnUpdateResult{Accepted: true}, nil
+}
+
+func validateTurnUpdate(params TurnUpdateParams) error {
+	statuses := map[string]bool{
+		"started": true, "thinking": true, "tool_running": true,
+		"streaming": true, "retrying": true, "completed": true,
+		"failed": true, "interrupted": true, "timeout": true,
+	}
+	if params.TurnID == "" || len(params.TurnID) > 128 {
+		return bridgeError("MESSAGE_INVALID", "turnId is required and must not exceed 128 characters", false)
+	}
+	if params.Sequence < 1 {
+		return bridgeError("MESSAGE_INVALID", "turn sequence must be positive", false)
+	}
+	if !statuses[params.Status] {
+		return bridgeError("MESSAGE_INVALID", "turn status is unsupported", false)
+	}
+	if len(params.Stage) > 64 || len(params.Delta) > 2048 {
+		return bridgeError("MESSAGE_INVALID", "turn update content is too large", false)
+	}
+	if params.Status == "completed" && params.MessageID == "" {
+		return bridgeError("MESSAGE_INVALID", "completed turn update requires messageId", false)
+	}
+	return nil
+}
+
+func emptyAsNil(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func (service *Service) Send(ctx context.Context, params SendParams) (SendResult, error) {

@@ -4,7 +4,7 @@ BIN_NAME := agenrena
 LOCAL_BIN := agenrena-cli
 DIST_DIR := dist
 PLATFORMS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
-VERSION ?= $(shell sed -n 's/^[[:space:]]*cliVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' main.go)
+VERSION ?= $(shell sed -n 's/^[[:space:]]*const Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/buildinfo/version.go)
 TAG ?= v$(VERSION)
 LDFLAGS := -s -w
 
@@ -18,7 +18,7 @@ help:
 	@printf '%s\n' '  make build      Build local ./agenrena-cli'
 	@printf '%s\n' '  make dist       Optional local cross-build smoke test'
 	@printf '%s\n' '  make release    Run checks, tag, and push main + tag'
-	@printf '%s\n' '  make tag        Create annotated git tag matching cliVersion'
+	@printf '%s\n' '  make tag        Create annotated git tag matching the CLI release version'
 	@printf '%s\n' ''
 	@printf 'Current version: %s\n' '$(VERSION)'
 	@printf 'Release tag:     %s\n' '$(TAG)'
@@ -67,8 +67,8 @@ release:
 	@printf 'Pushed main and %s. GitHub Actions should build and publish the release assets.\n' '$(TAG)'
 
 release-check:
-	@test -n "$(VERSION)" || (echo "Could not read cliVersion from main.go" >&2; exit 1)
-	@test "$(TAG)" = "v$(VERSION)" || (echo "TAG ($(TAG)) must match cliVersion ($(VERSION)); expected v$(VERSION)" >&2; exit 1)
+	@test -n "$(VERSION)" || (echo "Could not read the CLI version from internal/buildinfo/version.go" >&2; exit 1)
+	@test "$(TAG)" = "v$(VERSION)" || (echo "TAG ($(TAG)) must match the CLI version ($(VERSION)); expected v$(VERSION)" >&2; exit 1)
 	@test "$$(git rev-parse --abbrev-ref HEAD)" = "main" || (echo "Releases must be cut from the main branch." >&2; exit 1)
 	@git diff --quiet || (echo "Working tree has unstaged changes; commit or stash before release." >&2; exit 1)
 	@git diff --cached --quiet || (echo "Working tree has staged changes; commit or unstage before release." >&2; exit 1)

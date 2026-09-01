@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -339,6 +340,19 @@ func (socket *WebSocketConnection) Ping(ctx context.Context) error {
 		return err
 	}
 	return socket.sendFrame(0x9, probe[:])
+}
+
+func (socket *WebSocketConnection) SendJSON(ctx context.Context, value any) error {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = socket.conn.SetWriteDeadline(deadline)
+	} else {
+		_ = socket.conn.SetWriteDeadline(noDeadline)
+	}
+	return socket.sendFrame(0x1, payload)
 }
 
 func (socket *WebSocketConnection) Close() error {

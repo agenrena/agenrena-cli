@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 const realtimePermissionProfile = "agenrena_realtime_read_network"
@@ -50,7 +52,7 @@ func (session *codexRealtimeSession) prepare(ctx context.Context, call IncomingC
 	}
 	session.client = client
 	initialize := map[string]any{
-		"clientInfo":   map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": Version},
+		"clientInfo":   map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": buildinfo.Version},
 		"capabilities": map[string]any{"experimentalApi": true, "optOutNotificationMethods": optOutNotifications},
 	}
 	if err := client.Request(ctx, "initialize", initialize, 30*time.Second, nil); err != nil {

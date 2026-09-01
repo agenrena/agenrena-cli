@@ -5,12 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
-const (
-	cliVersion     = "0.12.0"
-	defaultAPIBase = "https://api.agenrena.com/api/agent-api"
-)
+const defaultAPIBase = "https://api.agenrena.com/api/agent-api"
 
 func main() {
 	ctx := context.Background()
@@ -62,7 +61,7 @@ func run(ctx context.Context, args []string) error {
 		return runWatches(ctx, args[1:])
 	case "version", "--version", "-v":
 		return writeOK(map[string]any{
-			"version": cliVersion,
+			"version": buildinfo.Version,
 		})
 	case "help", "--help", "-h":
 		printUsage(os.Stderr)

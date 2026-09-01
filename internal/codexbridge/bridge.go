@@ -11,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"github.com/agenrena/agenrena-cli/internal/agentbridge"
+	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
 type Sender struct {
@@ -76,10 +80,10 @@ func startAgentBridge(settings Settings) (*agentBridgeClient, error) {
 
 func (client *agentBridgeClient) Initialize(ctx context.Context) error {
 	params := map[string]any{
-		"protocolVersion": ProtocolVersion,
-		"clientInfo":      map[string]any{"name": "agenrena-codex-bridge", "version": Version},
+		"protocolVersion": agentBridgeProtocolVersion,
+		"clientInfo":      map[string]any{"name": "agenrena-codex-bridge", "version": buildinfo.Version},
 		"agent":           map[string]any{"type": "codex", "slashCommands": []string{}},
-		"capabilities":    map[string]any{"inboundMedia": true, "outboundMedia": true, "calls": client.callsEnabled},
+		"capabilities":    map[string]any{"inboundMedia": true, "outboundMedia": true, "calls": client.callsEnabled, "turnUpdates": true},
 	}
 	return client.process.Request(ctx, "initialize", params, 30*time.Second, nil)
 }
@@ -98,13 +102,23 @@ func (client *agentBridgeClient) LeaveCall(ctx context.Context, callID string) e
 	return client.process.Request(ctx, "calls/leave", map[string]any{"callId": callID}, 10*time.Second, nil)
 }
 
-func (client *agentBridgeClient) SendReply(ctx context.Context, reply Reply) error {
+func (client *agentBridgeClient) SendReply(ctx context.Context, reply Reply) (agentbridge.SendResult, error) {
+	var result agentbridge.SendResult
 	params := map[string]any{
 		"route": reply.Route, "replyTo": reply.InboundMessageID,
 		"clientMessageId": reply.ClientMessageID, "text": reply.Text,
 		"format": "markdown", "media": reply.Media,
 	}
-	return client.process.Request(ctx, "messages/send", params, 60*time.Second, nil)
+	err := client.process.Request(ctx, "messages/send", params, 60*time.Second, &result)
+	return result, err
+}
+
+func (client *agentBridgeClient) SendTurnUpdate(ctx context.Context, update agentbridge.TurnUpdateParams) error {
+	var result agentbridge.TurnUpdateResult
+	if err := client.process.Request(ctx, "turns/update", update, 5*time.Second, &result); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (client *agentBridgeClient) Handoff(ctx context.Context, route string) error {
@@ -130,6 +144,12 @@ type codexRunner struct {
 	settings Settings
 }
 
+type turnProgress struct {
+	Status string
+	Stage  string
+	Delta  string
+}
+
 var optOutNotifications = []string{
 	"account/rateLimits/updated", "command/exec/outputDelta", "item/commandExecution/outputDelta",
 	"item/commandExecution/terminalInteraction", "item/fileChange/outputDelta", "item/plan/delta",
@@ -137,7 +157,7 @@ var optOutNotifications = []string{
 	"mcpServer/startupStatus/updated", "thread/status/changed", "thread/tokenUsage/updated",
 }
 
-func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context) error) (turnResult, error) {
+func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context) error, progress func(turnProgress)) (turnResult, error) {
 	args := []string{"app-server", "-c", fmt.Sprintf("approval_policy=%q", runner.settings.ApprovalPolicy), "-c", fmt.Sprintf("sandbox_mode=%q", runner.settings.SandboxMode)}
 	if runner.settings.Model != "" {
 		args = append(args, "-c", fmt.Sprintf("model=%q", runner.settings.Model))
@@ -154,7 +174,7 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	defer client.Close(3 * time.Second)
 
 	initialize := map[string]any{
-		"clientInfo":   map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": Version},
+		"clientInfo":   map[string]any{"name": "agenrena-codex-bridge", "title": "Agenrena Codex Bridge", "version": buildinfo.Version},
 		"capabilities": map[string]any{"experimentalApi": true, "optOutNotificationMethods": optOutNotifications},
 	}
 	if err := client.Request(ctx, "initialize", initialize, 30*time.Second, nil); err != nil {
@@ -172,7 +192,7 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 		method = "thread/resume"
 		threadParams["threadId"] = threadID
 	} else {
-		threadParams["dynamicTools"] = []any{handoffTool()}
+		threadParams["dynamicTools"] = []any{handoffTool(), attachImageTool()}
 	}
 	var threadResponse struct {
 		Thread struct {
@@ -212,13 +232,16 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	if turnResponse.Turn.ID == "" {
 		return turnResult{}, errors.New("Codex app-server did not return a turn id")
 	}
-	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff)
+	if progress != nil {
+		progress(turnProgress{Status: "thinking", Stage: "reasoning"})
+	}
+	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, progress)
 	result.ThreadID = threadResponse.Thread.ID
 	result.TurnID = turnResponse.Turn.ID
 	return result, err
 }
 
-func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context) error) (turnResult, error) {
+func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context) error, progress func(turnProgress)) (turnResult, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	messages := make(map[string]map[string]string)
@@ -290,8 +313,14 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 			item := mapValue(params["item"])
 			switch notification.Method {
 			case "item/started":
-				if stringValue(item["type"]) == "agentMessage" {
+				itemType := stringValue(item["type"])
+				if itemType == "agentMessage" {
 					messages[stringValue(item["id"])] = map[string]string{"phase": stringValue(item["phase"]), "text": stringValue(item["text"])}
+				}
+				if progress != nil {
+					if update, ok := progressForItem(itemType, stringValue(item["phase"])); ok {
+						progress(update)
+					}
 				}
 			case "item/agentMessage/delta":
 				id := stringValue(params["itemId"])
@@ -319,6 +348,11 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 						fallback = text
 						if phase == "final_answer" {
 							final = text
+							if progress != nil {
+								progress(turnProgress{Status: "streaming", Stage: "final_answer"})
+							}
+						} else if phase == "commentary" && progress != nil {
+							progress(turnProgress{Status: "streaming", Stage: "commentary", Delta: truncateProgressText(text)})
 						}
 					}
 				case "imageGeneration":
@@ -332,7 +366,11 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 					addImage(media)
 				}
 			case "error":
-				if retrying, _ := params["willRetry"].(bool); !retrying {
+				if retrying, _ := params["willRetry"].(bool); retrying {
+					if progress != nil {
+						progress(turnProgress{Status: "retrying", Stage: "model"})
+					}
+				} else {
 					errorValue := mapValue(params["error"])
 					return turnResult{}, errors.New(envString(errorValue, "message", "Codex turn failed"))
 				}
@@ -343,6 +381,44 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 			return turnResult{}, fmt.Errorf("Codex turn exceeded %d seconds", int(timeout.Seconds()))
 		}
 	}
+}
+
+func progressForItem(itemType, phase string) (turnProgress, bool) {
+	switch itemType {
+	case "reasoning":
+		return turnProgress{Status: "thinking", Stage: "reasoning"}, true
+	case "commandExecution":
+		return turnProgress{Status: "tool_running", Stage: "command"}, true
+	case "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "subAgentActivity":
+		return turnProgress{Status: "tool_running", Stage: "tool"}, true
+	case "webSearch":
+		return turnProgress{Status: "tool_running", Stage: "web_search"}, true
+	case "fileChange":
+		return turnProgress{Status: "tool_running", Stage: "file_change"}, true
+	case "imageGeneration":
+		return turnProgress{Status: "tool_running", Stage: "image_generation"}, true
+	case "contextCompaction":
+		return turnProgress{Status: "thinking", Stage: "compacting"}, true
+	case "agentMessage":
+		if phase == "final_answer" {
+			return turnProgress{Status: "streaming", Stage: "final_answer"}, true
+		}
+		return turnProgress{Status: "streaming", Stage: "commentary"}, true
+	default:
+		return turnProgress{}, false
+	}
+}
+
+func truncateProgressText(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 2048 {
+		return value
+	}
+	for len(value) > 2048 {
+		_, size := utf8.DecodeLastRuneInString(value)
+		value = value[:len(value)-size]
+	}
+	return value
 }
 
 func handoffTool() map[string]any {
@@ -456,6 +532,44 @@ type bridgeService struct {
 	wait        sync.WaitGroup
 }
 
+type turnProgressEmitter struct {
+	bridge   *agentBridgeClient
+	route    string
+	replyTo  string
+	turnID   string
+	sequence int64
+	mu       sync.Mutex
+}
+
+func newTurnProgressEmitter(bridge *agentBridgeClient, route, inboundMessageID string) *turnProgressEmitter {
+	turnID := "codex-" + inboundMessageID
+	if len(turnID) > 128 {
+		turnID = turnID[:128]
+	}
+	return &turnProgressEmitter{
+		bridge: bridge, route: route, replyTo: inboundMessageID, turnID: turnID,
+		sequence: time.Now().UnixMilli() * 1000,
+	}
+}
+
+func (emitter *turnProgressEmitter) Emit(ctx context.Context, progress turnProgress, messageID string) {
+	emitter.mu.Lock()
+	emitter.sequence++
+	sequence := emitter.sequence
+	emitter.mu.Unlock()
+
+	updateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err := emitter.bridge.SendTurnUpdate(updateCtx, agentbridge.TurnUpdateParams{
+		Route: emitter.route, ReplyTo: emitter.replyTo, TurnID: emitter.turnID,
+		Sequence: sequence, Status: progress.Status, Stage: progress.Stage,
+		Delta: progress.Delta, MessageID: messageID,
+	})
+	if err != nil {
+		log.Printf("turn %s progress %s could not be published: %v", emitter.turnID, progress.Status, err)
+	}
+}
+
 func newBridgeService(bridge *agentBridgeClient, codex codexRunner, store *StateStore, calls *callManager, status func(map[string]any)) *bridgeService {
 	return &bridgeService{bridge: bridge, codex: codex, store: store, calls: calls, status: status, inflight: make(map[string]bool), routeQueues: make(map[string]chan InboundMessage)}
 }
@@ -469,7 +583,9 @@ func (service *bridgeService) Run(ctx context.Context) error {
 		return err
 	}
 	for _, reply := range service.store.PendingReplies() {
-		if err := service.deliver(ctx, reply); err != nil {
+		emitter := newTurnProgressEmitter(service.bridge, reply.Route, reply.InboundMessageID)
+		emitter.Emit(ctx, turnProgress{Status: "started", Stage: "delivery"}, "")
+		if err := service.deliver(ctx, reply, emitter); err != nil {
 			return err
 		}
 	}
@@ -557,14 +673,26 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 		return nil
 	}
 	reply, pending := service.store.Pending(message.ID)
+	emitter := newTurnProgressEmitter(service.bridge, message.Route, message.ID)
 	if !pending {
+		emitter.Emit(ctx, turnProgress{Status: "started"}, "")
 		result, err := service.codex.RunTurn(ctx, message, service.store.ThreadID(message.Route), func(callCtx context.Context) error {
 			return service.bridge.Handoff(callCtx, message.Route)
+		}, func(progress turnProgress) {
+			emitter.Emit(ctx, progress, "")
 		})
 		if err != nil {
+			status := "failed"
+			if strings.Contains(err.Error(), "exceeded") {
+				status = "timeout"
+			} else if errors.Is(err, context.Canceled) {
+				status = "interrupted"
+			}
+			emitter.Emit(ctx, turnProgress{Status: status, Stage: "model"}, "")
 			return err
 		}
 		if result.HandedOff {
+			emitter.Emit(ctx, turnProgress{Status: "interrupted", Stage: "handoff"}, "")
 			return service.store.CompleteWithoutReply(message.ID, message.Route, result.ThreadID)
 		}
 		clientMessageID := "codex-" + message.ID
@@ -577,17 +705,22 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 			ClientMessageID: clientMessageID,
 		})
 		if err != nil {
+			emitter.Emit(ctx, turnProgress{Status: "failed", Stage: "delivery"}, "")
 			return err
 		}
 	}
-	return service.deliver(ctx, reply)
+	return service.deliver(ctx, reply, emitter)
 }
 
-func (service *bridgeService) deliver(ctx context.Context, reply Reply) error {
-	if err := service.bridge.SendReply(ctx, reply); err != nil {
+func (service *bridgeService) deliver(ctx context.Context, reply Reply, emitter *turnProgressEmitter) error {
+	result, err := service.bridge.SendReply(ctx, reply)
+	if err != nil {
+		emitter.Emit(ctx, turnProgress{Status: "retrying", Stage: "delivery"}, "")
 		return err
 	}
-	return service.store.MarkSent(reply.InboundMessageID)
+	markErr := service.store.MarkSent(reply.InboundMessageID)
+	emitter.Emit(ctx, turnProgress{Status: "completed", Stage: "delivery"}, result.MessageID)
+	return markErr
 }
 
 func decodeMap(raw json.RawMessage) map[string]any {
