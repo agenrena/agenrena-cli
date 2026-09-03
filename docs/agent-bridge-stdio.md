@@ -196,8 +196,9 @@ Each media input contains exactly one of:
 Local paths must be absolute regular files. URLs must be absolute HTTPS URLs
 and pass the bridge's SSRF and redirect checks. The CLI owns decoding,
 conversion, thumbnail generation, presigning, upload, retry, and final message
-creation. Outbound image input supports JPEG, PNG, and GIF in v1; WebP input is
-rejected with `MEDIA_INVALID` by the current dependency-free CLI build.
+creation. Each outbound original image must be no larger than 5 MiB. Outbound
+image input supports JPEG, PNG, and GIF in v1; WebP input is rejected with
+`MEDIA_INVALID` by the current dependency-free CLI build.
 
 When both `text` and `media` are present, the CLI uploads all media first and
 then creates two platform messages in order: a text message followed by one

@@ -235,13 +235,13 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	if progress != nil {
 		progress(turnProgress{Status: "thinking", Stage: "reasoning"})
 	}
-	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, progress)
+	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, runner.attachmentResolver(message), progress)
 	result.ThreadID = threadResponse.Thread.ID
 	result.TurnID = turnResponse.Turn.ID
 	return result, err
 }
 
-func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context) error, progress func(turnProgress)) (turnResult, error) {
+func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context) error, attach func(string) (Media, error), progress func(turnProgress)) (turnResult, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	messages := make(map[string]map[string]string)
@@ -252,13 +252,14 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 	handoffCalled := false
 	var handoffErr error
 
-	addImage := func(media Media) {
+	addImage := func(media Media) bool {
 		key := mediaIdentity(media)
 		if key == "" || imageKeys[key] || len(images) >= maxOutboundMediaCount {
-			return
+			return false
 		}
 		imageKeys[key] = true
 		images = append(images, media)
+		return true
 	}
 
 	for {
@@ -276,6 +277,20 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 					continue
 				}
 				_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": "The conversation was handed off to its human responder."}}, "success": true})
+				continue
+			}
+			if request.Method == "item/tool/call" && stringValue(params["tool"]) == attachImageToolName {
+				media, attachErr := attach(stringValue(toolArguments(params)["path"]))
+				if attachErr != nil {
+					_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": attachErr.Error()}}, "success": false})
+					continue
+				}
+				if !addImage(media) {
+					message := fmt.Sprintf("The image was not attached. A reply carries at most %d images, and that image may already be attached.", maxOutboundMediaCount)
+					_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": message}}, "success": false})
+					continue
+				}
+				_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": "The image was attached to the reply."}}, "success": true})
 				continue
 			}
 			if request.Method == "item/permissions/requestApproval" {
@@ -427,6 +442,104 @@ func handoffTool() map[string]any {
 		"description": "Immediately return the current Agenrena conversation to its human responder. Use this when the conversation should no longer be handled by Codex.",
 		"inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{}},
 	}
+}
+
+func attachImageTool() map[string]any {
+	return map[string]any{
+		"type": "function", "name": attachImageToolName,
+		"description": "Attach an image file that already exists on disk to the reply for the current Agenrena message. Use this to send an image the workspace contains, or to send back an image from the current inbound message. Images Codex generates during this turn are attached automatically and must not be attached again with this tool.",
+		"inputSchema": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Absolute path to a PNG, JPEG, or GIF file inside the connected workspace, or the path of an image from the current inbound message.",
+				},
+			},
+			"required": []any{"path"},
+		},
+	}
+}
+
+func toolArguments(params map[string]any) map[string]any {
+	switch value := params["arguments"].(type) {
+	case map[string]any:
+		return value
+	case string:
+		decoded := map[string]any{}
+		if json.Unmarshal([]byte(value), &decoded) == nil {
+			return decoded
+		}
+	}
+	return map[string]any{}
+}
+
+// attachmentResolver limits attach_image to files the local user already
+// exposed to this turn: anything inside the configured workspace, plus the
+// inbound media of the message being answered so a reply can return an image
+// the sender just supplied. Paths are resolved through symlinks before the
+// containment check so a link inside the workspace cannot reach outside it.
+func (runner codexRunner) attachmentResolver(message InboundMessage) func(string) (Media, error) {
+	workspace, err := filepath.EvalSymlinks(runner.settings.Workspace)
+	if err != nil {
+		workspace = ""
+	}
+	inbound := make([]string, 0, len(message.Media))
+	for _, media := range message.Media {
+		if resolved, err := filepath.EvalSymlinks(media.Path); err == nil {
+			inbound = append(inbound, resolved)
+		}
+	}
+	return func(path string) (Media, error) {
+		return resolveAttachment(path, workspace, inbound)
+	}
+}
+
+func resolveAttachment(raw, workspace string, inbound []string) (Media, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return Media{}, errors.New("attach_image requires a path")
+	}
+	if !filepath.IsAbs(path) {
+		return Media{}, errors.New("attach_image path must be absolute")
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return Media{}, fmt.Errorf("attach_image could not resolve %s", path)
+	}
+	permitted := workspace != "" && pathWithinRoot(workspace, resolved)
+	for _, candidate := range inbound {
+		if candidate == resolved {
+			permitted = true
+			break
+		}
+	}
+	if !permitted {
+		return Media{}, errors.New("attach_image path must be inside the connected workspace or an image from the current inbound message")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() {
+		return Media{}, errors.New("attach_image path must reference a regular file")
+	}
+	if info.Size() > maxOutboundMediaBytes {
+		return Media{}, fmt.Errorf("attach_image file exceeds the %d-byte limit", maxOutboundMediaBytes)
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return Media{}, fmt.Errorf("attach_image could not read %s", path)
+	}
+	if _, err := imageExtension(data); err != nil {
+		return Media{}, errors.New("attach_image file is not a supported PNG, JPEG, or GIF image")
+	}
+	return Media{Path: resolved}, nil
+}
+
+func pathWithinRoot(root, candidate string) bool {
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func sandboxPolicy(mode string) (map[string]any, error) {

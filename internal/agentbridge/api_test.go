@@ -125,6 +125,20 @@ func TestSendMessageKeepsImageOnlyAsOnePlatformMessage(t *testing.T) {
 	}
 }
 
+func TestPrepareOutboundImageRejectsOriginalOverFiveMiB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.png")
+	if err := os.WriteFile(path, testPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, int64(defaultMaxOutboundBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (&APIClient{}).prepareOutboundImage(context.Background(), SendMedia{Path: path})
+	if err == nil || !strings.Contains(err.Error(), "5242880-byte original size limit") {
+		t.Fatalf("error = %v, want 5 MiB original size limit", err)
+	}
+}
+
 func TestSendMessageReportsPartialDeliveryWhenImageMessageFails(t *testing.T) {
 	imagePath := writeOutboundTestImage(t)
 	sends := 0

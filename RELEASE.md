@@ -3,7 +3,7 @@
 The source of truth for the whole CLI binary version is `buildinfo.Version` in
 `internal/buildinfo/version.go`.
 Release tags should match that version with a leading `v`, for example
-`buildinfo.Version = "0.13.0"` pairs with tag `v0.13.0`.
+`buildinfo.Version = "0.13.1"` pairs with tag `v0.13.1`.
 
 Do not use protocol, route, media, persisted-state schema, or plugin cachebuster
 versions as CLI release versions. Feature availability is negotiated through

@@ -18,7 +18,7 @@ const (
 	threadToolsSchemaVersion   = 2
 	maxCompletedIDs            = 5000
 	maxOutboundMediaCount      = 9
-	maxOutboundMediaBytes      = 20 * 1024 * 1024
+	maxOutboundMediaBytes      = 5 * 1024 * 1024
 	maxTotalOutboundMedia      = 50 * 1024 * 1024
 	defaultTurnTimeout         = 15 * time.Minute
 	handoffToolName            = "handoff_to_human"

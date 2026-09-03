@@ -514,6 +514,9 @@ func (client *APIClient) prepareOutboundImage(ctx context.Context, input SendMed
 	if err != nil {
 		return nil, err
 	}
+	if len(data) > defaultMaxOutboundBytes {
+		return nil, bridgeError("MEDIA_INVALID", fmt.Sprintf("outbound media exceeds the %d-byte original size limit", defaultMaxOutboundBytes), false)
+	}
 	if mimeType, _, ok := detectedImageType(data); !ok {
 		return nil, bridgeError("MEDIA_INVALID", "media is not a supported image", false)
 	} else if mimeType == "image/webp" {
@@ -551,8 +554,8 @@ func readLocalImage(path string) ([]byte, error) {
 	if err != nil || !info.Mode().IsRegular() {
 		return nil, bridgeError("MEDIA_INVALID", "local media path must reference a regular file", false)
 	}
-	if info.Size() > defaultMaxMediaBytes {
-		return nil, bridgeError("MEDIA_INVALID", fmt.Sprintf("local media exceeds the %d-byte size limit", defaultMaxMediaBytes), false)
+	if info.Size() > defaultMaxOutboundBytes {
+		return nil, bridgeError("MEDIA_INVALID", fmt.Sprintf("outbound media exceeds the %d-byte original size limit", defaultMaxOutboundBytes), false)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

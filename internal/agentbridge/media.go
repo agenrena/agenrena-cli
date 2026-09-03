@@ -24,6 +24,7 @@ const (
 	defaultMaxMediaCount      = 9
 	defaultMaxMediaBytes      = 20 * 1024 * 1024
 	defaultMaxTotalMediaBytes = 50 * 1024 * 1024
+	defaultMaxOutboundBytes   = 5 * 1024 * 1024
 )
 
 type MediaStore struct {

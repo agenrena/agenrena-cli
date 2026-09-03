@@ -331,6 +331,67 @@ func TestCodexRunnerHandoffAndImageOutput(t *testing.T) {
 	}
 }
 
+func TestCodexRunnerAttachesWorkspaceImage(t *testing.T) {
+	root := testEnvironment(t)
+	pngBytes, err := base64.StdEncoding.DecodeString(testPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachable := filepath.Join(root, "diagram.png")
+	if err := os.WriteFile(attachable, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_WANT_CODEX_HELPER", "attach-image")
+	t.Setenv("CODEX_HELPER_ATTACH_PATH", attachable)
+	runner := codexRunner{settings: Settings{
+		Workspace: root, CodexCommand: []string{os.Args[0], "-test.run=TestCodexHelperProcess"},
+		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
+	}}
+	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-attach", Route: "opaque", Text: "send the diagram"}, "", func(context.Context) error { return nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(attachable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Media) != 1 || result.Media[0].Path != resolved {
+		t.Fatalf("result media = %#v, want one attachment at %q", result.Media, resolved)
+	}
+	if result.Text != "here it is" {
+		t.Fatalf("result text = %q", result.Text)
+	}
+}
+
+func TestCodexRunnerRejectsAttachmentOutsideWorkspace(t *testing.T) {
+	root := testEnvironment(t)
+	pngBytes, err := base64.StdEncoding.DecodeString(testPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outside, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GO_WANT_CODEX_HELPER", "attach-image")
+	t.Setenv("CODEX_HELPER_ATTACH_PATH", outside)
+	t.Setenv("CODEX_HELPER_ATTACH_EXPECT_FAILURE", "1")
+	runner := codexRunner{settings: Settings{
+		Workspace: filepath.Join(root, "workspace"), CodexCommand: []string{os.Args[0], "-test.run=TestCodexHelperProcess"},
+		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
+	}}
+	if err := os.MkdirAll(runner.settings.Workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-reject", Route: "opaque", Text: "send the secret"}, "", func(context.Context) error { return nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Media) != 0 {
+		t.Fatalf("expected no attachment, got %#v", result.Media)
+	}
+}
+
 func TestCodexHelperProcess(t *testing.T) {
 	mode := os.Getenv("GO_WANT_CODEX_HELPER")
 	if mode == "" {
@@ -354,9 +415,13 @@ func TestCodexHelperProcess(t *testing.T) {
 			_ = encoder.Encode(map[string]any{"id": id, "result": map[string]any{"thread": map[string]any{"id": "shared-thread"}}})
 		case "turn/start":
 			_ = encoder.Encode(map[string]any{"id": id, "result": map[string]any{"turn": map[string]any{"id": "turn-1"}}})
-			if mode == "handoff-image" {
+			switch mode {
+			case "handoff-image":
 				_ = encoder.Encode(map[string]any{"id": 99, "method": "item/tool/call", "params": map[string]any{"turnId": "turn-1", "tool": handoffToolName}})
-			} else {
+			case "attach-image":
+				arguments, _ := json.Marshal(map[string]any{"path": os.Getenv("CODEX_HELPER_ATTACH_PATH")})
+				_ = encoder.Encode(map[string]any{"id": 98, "method": "item/tool/call", "params": map[string]any{"turnId": "turn-1", "tool": attachImageToolName, "arguments": string(arguments)}})
+			default:
 				writeCompletedTurn(encoder, "final reply", false)
 			}
 		default:
@@ -366,6 +431,14 @@ func TestCodexHelperProcess(t *testing.T) {
 					os.Exit(3)
 				}
 				writeCompletedTurn(encoder, "handoff complete", true)
+			}
+			if mode == "attach-image" && request["id"] == float64(98) {
+				result := mapValue(request["result"])
+				wantFailure := os.Getenv("CODEX_HELPER_ATTACH_EXPECT_FAILURE") != ""
+				if result["success"] != !wantFailure {
+					os.Exit(4)
+				}
+				writeCompletedTurn(encoder, "here it is", false)
 			}
 		}
 	}
@@ -377,4 +450,128 @@ func writeCompletedTurn(encoder *json.Encoder, text string, includeImage bool) {
 	}
 	_ = encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"turnId": "turn-1", "item": map[string]any{"id": "message-1", "type": "agentMessage", "phase": "final_answer", "text": text}}})
 	_ = encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"turn": map[string]any{"id": "turn-1", "status": "completed"}}})
+}
+
+func TestResolveAttachment(t *testing.T) {
+	pngBytes, err := base64.StdEncoding.DecodeString(testPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	workspace, err := filepath.EvalSymlinks(filepath.Join(root, "workspace"))
+	if err != nil {
+		if mkErr := os.MkdirAll(filepath.Join(root, "workspace"), 0o700); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+		if workspace, err = filepath.EvalSymlinks(filepath.Join(root, "workspace")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	insideImage := filepath.Join(workspace, "diagram.png")
+	if err := os.WriteFile(insideImage, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nestedImage := filepath.Join(workspace, "assets", "nested.png")
+	if err := os.MkdirAll(filepath.Dir(nestedImage), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nestedImage, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notAnImage := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(notAnImage, []byte("plain text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	secretImage := filepath.Join(outside, "secret.png")
+	if err := os.WriteFile(secretImage, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(workspace, "escape.png")
+	if err := os.Symlink(secretImage, escape); err != nil {
+		t.Fatal(err)
+	}
+	inboundImage := filepath.Join(outside, "inbound.png")
+	if err := os.WriteFile(inboundImage, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "workspace file", path: insideImage, want: insideImage},
+		{name: "nested workspace file", path: nestedImage, want: nestedImage},
+		{name: "inbound media outside workspace", path: inboundImage, want: inboundImage},
+		{name: "outside workspace", path: secretImage, wantErr: true},
+		{name: "symlink escaping workspace", path: escape, wantErr: true},
+		{name: "traversal out of workspace", path: filepath.Join(workspace, "..", "secret.png"), wantErr: true},
+		{name: "relative path", path: "diagram.png", wantErr: true},
+		{name: "empty path", path: "", wantErr: true},
+		{name: "directory", path: workspace, wantErr: true},
+		{name: "not an image", path: notAnImage, wantErr: true},
+		{name: "missing file", path: filepath.Join(workspace, "absent.png"), wantErr: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			media, err := resolveAttachment(testCase.path, workspace, []string{inboundImage})
+			if testCase.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got media %#v", media)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if media.Path != testCase.want {
+				t.Fatalf("media.Path = %q, want %q", media.Path, testCase.want)
+			}
+		})
+	}
+}
+
+func TestResolveAttachmentRejectsOriginalOverFiveMiB(t *testing.T) {
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workspace, "oversized.png")
+	pngBytes, err := base64.StdEncoding.DecodeString(testPNGBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, int64(maxOutboundMediaBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolveAttachment(path, workspace, nil)
+	if err == nil || !strings.Contains(err.Error(), "5242880-byte limit") {
+		t.Fatalf("error = %v, want 5 MiB limit", err)
+	}
+}
+
+func TestToolArguments(t *testing.T) {
+	object := toolArguments(map[string]any{"arguments": map[string]any{"path": "/tmp/a.png"}})
+	if stringValue(object["path"]) != "/tmp/a.png" {
+		t.Fatalf("object form = %#v", object)
+	}
+	encoded := toolArguments(map[string]any{"arguments": `{"path":"/tmp/b.png"}`})
+	if stringValue(encoded["path"]) != "/tmp/b.png" {
+		t.Fatalf("string form = %#v", encoded)
+	}
+	if len(toolArguments(map[string]any{})) != 0 {
+		t.Fatal("missing arguments should decode to an empty map")
+	}
+	if len(toolArguments(map[string]any{"arguments": "not json"})) != 0 {
+		t.Fatal("invalid arguments should decode to an empty map")
+	}
 }
