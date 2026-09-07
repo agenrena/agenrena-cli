@@ -64,6 +64,11 @@ type agentBridgeClient struct {
 	callsEnabled bool
 }
 
+var codexSlashCommands = []agentbridge.SlashCommand{
+	{Name: "new", Description: "Start a new Codex conversation"},
+	{Name: "status", Description: "Show the current Codex session status"},
+}
+
 func startAgentBridge(settings Settings) (*agentBridgeClient, error) {
 	command := settings.AgenrenaBin
 	args := []string{"agent", "bridge", "--stdio"}
@@ -79,11 +84,13 @@ func startAgentBridge(settings Settings) (*agentBridgeClient, error) {
 }
 
 func (client *agentBridgeClient) Initialize(ctx context.Context) error {
-	params := map[string]any{
-		"protocolVersion": agentBridgeProtocolVersion,
-		"clientInfo":      map[string]any{"name": "agenrena-codex-bridge", "version": buildinfo.Version},
-		"agent":           map[string]any{"type": "codex", "slashCommands": []string{}},
-		"capabilities":    map[string]any{"inboundMedia": true, "outboundMedia": true, "calls": client.callsEnabled, "turnUpdates": true},
+	params := agentbridge.InitializeParams{
+		ProtocolVersion: agentBridgeProtocolVersion,
+		ClientInfo:      agentbridge.ClientInfo{Name: "agenrena-codex-bridge", Version: buildinfo.Version},
+		Agent:           agentbridge.AgentInfo{Type: "codex", SlashCommands: codexSlashCommands},
+		Capabilities: agentbridge.ClientCapabilities{
+			InboundMedia: true, OutboundMedia: true, Calls: client.callsEnabled, TurnUpdates: true,
+		},
 	}
 	return client.process.Request(ctx, "initialize", params, 30*time.Second, nil)
 }
@@ -789,11 +796,14 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 	emitter := newTurnProgressEmitter(service.bridge, message.Route, message.ID)
 	if !pending {
 		emitter.Emit(ctx, turnProgress{Status: "started"}, "")
-		result, err := service.codex.RunTurn(ctx, message, service.store.ThreadID(message.Route), func(callCtx context.Context) error {
-			return service.bridge.Handoff(callCtx, message.Route)
-		}, func(progress turnProgress) {
-			emitter.Emit(ctx, progress, "")
-		})
+		result, handled, err := service.runRuntimeCommand(message)
+		if !handled {
+			result, err = service.codex.RunTurn(ctx, message, service.store.ThreadID(message.Route), func(callCtx context.Context) error {
+				return service.bridge.Handoff(callCtx, message.Route)
+			}, func(progress turnProgress) {
+				emitter.Emit(ctx, progress, "")
+			})
+		}
 		if err != nil {
 			status := "failed"
 			if strings.Contains(err.Error(), "exceeded") {
@@ -823,6 +833,25 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 		}
 	}
 	return service.deliver(ctx, reply, emitter)
+}
+
+func (service *bridgeService) runRuntimeCommand(message InboundMessage) (turnResult, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(message.Text)) {
+	case "/new":
+		if err := service.store.ClearThread(message.Route); err != nil {
+			return turnResult{}, true, err
+		}
+		return turnResult{Text: "Started a new Codex conversation. Send your next message to begin it."}, true, nil
+	case "/status":
+		threadID := service.store.ThreadID(message.Route)
+		status := "Codex is connected. No conversation is active yet."
+		if threadID != "" {
+			status = "Codex is connected. The current conversation is active."
+		}
+		return turnResult{ThreadID: threadID, Text: status}, true, nil
+	default:
+		return turnResult{}, false, nil
+	}
 }
 
 func (service *bridgeService) deliver(ctx context.Context, reply Reply, emitter *turnProgressEmitter) error {

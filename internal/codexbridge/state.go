@@ -89,6 +89,13 @@ func (store *StateStore) ThreadID(route string) string {
 	return store.data.Sessions[route]
 }
 
+func (store *StateStore) ClearThread(route string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.data.Sessions, route)
+	return atomicWriteJSON(store.path, store.data)
+}
+
 func (store *StateStore) Completed(id string) bool {
 	store.mu.Lock()
 	defer store.mu.Unlock()

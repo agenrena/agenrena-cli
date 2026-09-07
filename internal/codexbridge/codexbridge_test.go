@@ -116,6 +116,28 @@ func TestStateResetsThreadsWhenToolSurfaceChanges(t *testing.T) {
 	}
 }
 
+func TestStateClearThreadPersists(t *testing.T) {
+	root := testEnvironment(t)
+	path := filepath.Join(root, "state.json")
+	store := NewStateStore(path)
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteWithoutReply("m1", "opaque.route", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClearThread("opaque.route"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStateStore(path)
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if threadID := reloaded.ThreadID("opaque.route"); threadID != "" {
+		t.Fatalf("thread = %q, want empty", threadID)
+	}
+}
+
 func TestMCPListsToolsAndConfiguresWorkspace(t *testing.T) {
 	root := testEnvironment(t)
 	workspace := filepath.Join(root, "workspace")
@@ -251,6 +273,22 @@ func TestAgentBridgeHelperProcess(t *testing.T) {
 		id := request["id"]
 		switch request["method"] {
 		case "initialize":
+			params := mapValue(request["params"])
+			agent := mapValue(params["agent"])
+			commands, _ := agent["slashCommands"].([]any)
+			if agent["type"] != "codex" || len(commands) != 2 ||
+				mapValue(commands[0])["name"] != "new" || mapValue(commands[1])["name"] != "status" {
+				os.Exit(3)
+			}
+			for _, command := range commands {
+				value := mapValue(command)
+				if _, ok := value["aliases"]; ok {
+					os.Exit(4)
+				}
+				if _, ok := value["subcommands"]; ok {
+					os.Exit(5)
+				}
+			}
 			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"state": "connected"}})
 		case "conversations/handoff":
 			params := mapValue(request["params"])
@@ -262,6 +300,30 @@ func TestAgentBridgeHelperProcess(t *testing.T) {
 			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"state": "stopped"}})
 			return
 		}
+	}
+}
+
+func TestRuntimeCommands(t *testing.T) {
+	root := testEnvironment(t)
+	store := NewStateStore(filepath.Join(root, "state.json"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteWithoutReply("m1", "opaque.route", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+	service := &bridgeService{store: store}
+
+	status, handled, err := service.runRuntimeCommand(InboundMessage{Route: "opaque.route", Text: "  /STATUS  "})
+	if err != nil || !handled || status.ThreadID != "thread-1" || !strings.Contains(status.Text, "active") {
+		t.Fatalf("status = %#v, handled = %v, err = %v", status, handled, err)
+	}
+	started, handled, err := service.runRuntimeCommand(InboundMessage{Route: "opaque.route", Text: "/new"})
+	if err != nil || !handled || started.ThreadID != "" || store.ThreadID("opaque.route") != "" {
+		t.Fatalf("new = %#v, handled = %v, thread = %q, err = %v", started, handled, store.ThreadID("opaque.route"), err)
+	}
+	if _, handled, err := service.runRuntimeCommand(InboundMessage{Route: "opaque.route", Text: "/new now"}); err != nil || handled {
+		t.Fatalf("command with arguments handled = %v, err = %v", handled, err)
 	}
 }
 
