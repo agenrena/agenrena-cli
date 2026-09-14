@@ -180,9 +180,6 @@ func (service *Service) UpdateTurn(ctx context.Context, params TurnUpdateParams)
 	if source == "" && conversationID != "" {
 		source = "agenrena"
 	}
-	if conversationID == "" && source == "agenrena" {
-		conversationID = route.ChatID
-	}
 	if source != "agenrena" || conversationID == "" {
 		return TurnUpdateResult{Accepted: false}, nil
 	}

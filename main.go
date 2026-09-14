@@ -41,6 +41,8 @@ func run(ctx context.Context, args []string) error {
 		return runCodex(ctx, args[1:])
 	case "doctor":
 		return runDoctor(ctx, args[1:])
+	case "discovery":
+		return runDiscovery(ctx, args[1:])
 	case "marketplace":
 		return runMarketplace(ctx, args[1:])
 	case "memories":
@@ -79,6 +81,8 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")
 	fmt.Fprintln(out, "  agenrena doctor")
+	fmt.Fprintln(out, "  agenrena discovery tasks create --json <json>")
+	fmt.Fprintln(out, "  agenrena discovery tasks get --task-id <uuid>")
 	fmt.Fprintln(out, "  agenrena businesses offerings search-options --country-code <code> [--state-code <code>]")
 	fmt.Fprintln(out, "  agenrena businesses offerings search --category <category> [options]")
 	fmt.Fprintln(out, "  agenrena businesses offerings list --identity-id <uuid>")

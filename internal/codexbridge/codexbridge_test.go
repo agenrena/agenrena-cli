@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agenrena/agenrena-cli/internal/agentbridge"
 	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
 
@@ -135,6 +137,85 @@ func TestStateClearThreadPersists(t *testing.T) {
 	}
 	if threadID := reloaded.ThreadID("opaque.route"); threadID != "" {
 		t.Fatalf("thread = %q, want empty", threadID)
+	}
+}
+
+func TestTerminalDiscoveryReplyErrorClearsPending(t *testing.T) {
+	root := testEnvironment(t)
+	store := NewStateStore(filepath.Join(root, "state.json"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	route, err := agentbridge.EncodeRoute(agentbridge.Route{
+		Source: "agenrena", ChatID: "discovery_inquiry:inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := store.Record(Reply{
+		InboundMessageID: "inquiry-1", Route: route, ThreadID: "thread-1",
+		Text: "Available.", ClientMessageID: "codex-inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &bridgeService{store: store}
+	discarded, err := service.discardTerminalDiscoveryReply(reply, &agentbridge.RPCError{
+		Code: "DISCOVERY_INQUIRY_DEADLINE_PASSED", Message: "deadline passed", Recoverable: false,
+	})
+	if err != nil || !discarded {
+		t.Fatalf("discarded=%v err=%v", discarded, err)
+	}
+	if _, pending := store.Pending("inquiry-1"); pending || !store.Completed("inquiry-1") {
+		t.Fatalf("pending=%v completed=%v", pending, store.Completed("inquiry-1"))
+	}
+}
+
+func TestTransientDiscoveryReplyErrorKeepsPending(t *testing.T) {
+	root := testEnvironment(t)
+	store := NewStateStore(filepath.Join(root, "state.json"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	route, err := agentbridge.EncodeRoute(agentbridge.Route{
+		Source: "agenrena", ChatID: "discovery_inquiry:inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := store.Record(Reply{
+		InboundMessageID: "inquiry-1", Route: route, ThreadID: "thread-1",
+		Text: "Available.", ClientMessageID: "codex-inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &bridgeService{store: store}
+	discarded, err := service.discardTerminalDiscoveryReply(reply, &agentbridge.RPCError{
+		Code: "NETWORK_ERROR", Message: "connection ended", Recoverable: true,
+	})
+	if err != nil || discarded {
+		t.Fatalf("discarded=%v err=%v", discarded, err)
+	}
+	if _, pending := store.Pending("inquiry-1"); !pending || store.Completed("inquiry-1") {
+		t.Fatalf("pending=%v completed=%v", pending, store.Completed("inquiry-1"))
+	}
+}
+
+func TestRPCProcessPreservesStructuredBridgeError(t *testing.T) {
+	wait := make(chan rpcReply, 1)
+	process := &jsonLineProcess{pending: map[int]chan rpcReply{1: wait}}
+	process.dispatch(rpcMessage{
+		ID: json.RawMessage("1"),
+		Error: &rpcError{
+			Message: "deadline passed",
+			Data:    json.RawMessage(`{"code":"DISCOVERY_INQUIRY_DEADLINE_PASSED","message":"deadline passed","recoverable":false}`),
+		},
+	})
+	reply := <-wait
+	var rpcErr *agentbridge.RPCError
+	if !errors.As(reply.err, &rpcErr) || rpcErr.Code != "DISCOVERY_INQUIRY_DEADLINE_PASSED" || rpcErr.Recoverable {
+		t.Fatalf("error=%+v", reply.err)
 	}
 }
 
@@ -336,8 +417,12 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 		Workspace: root, CodexCommand: []string{os.Args[0], "-test.run=TestCodexHelperProcess"},
 		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
 	}}
+	route, err := agentbridge.EncodeRoute(agentbridge.Route{ConversationID: "conversation-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var progress []turnProgress
-	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: "same", Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context) error { return nil }, func(update turnProgress) {
+	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: route, Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context) error { return nil }, func(update turnProgress) {
 		progress = append(progress, update)
 	})
 	if err != nil {
@@ -349,7 +434,7 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 	if len(progress) < 2 || progress[0].Status != "thinking" || progress[len(progress)-1].Stage != "final_answer" {
 		t.Fatalf("progress = %#v", progress)
 	}
-	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: "same", Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context) error { return nil }, nil); err != nil {
+	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: route, Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context) error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(capture)
@@ -383,8 +468,8 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 		}
 		userInputs = append(userInputs, stringValue(mapValue(inputs[0])["text"]))
 	}
-	if len(metadata) != 2 || metadata[0] != `{"auth_sender_id":"owner-id","inbound_message_id":"m1"}` ||
-		metadata[1] != `{"auth_sender_id":"guest-id","inbound_message_id":"m2"}` {
+	if len(metadata) != 2 || metadata[0] != `{"auth_sender_id":"owner-id","conversation_id":"conversation-1","inbound_message_id":"m1"}` ||
+		metadata[1] != `{"auth_sender_id":"guest-id","conversation_id":"conversation-1","inbound_message_id":"m2"}` {
 		t.Fatalf("per-turn sender metadata missing: %#v", metadata)
 	}
 	if len(userInputs) != 2 || userInputs[0] != "first" || userInputs[1] != "second" {

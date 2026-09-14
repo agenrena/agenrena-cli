@@ -577,8 +577,13 @@ func transportPolicyInstructions() string {
 }
 
 func transportMetadataContext(message InboundMessage) map[string]any {
+	conversationID := ""
+	if route, err := agentbridge.DecodeRoute(message.Route); err == nil {
+		conversationID = strings.TrimSpace(route.ConversationID)
+	}
 	metadata, _ := json.Marshal(map[string]any{
 		"auth_sender_id":     nullIfEmpty(strings.TrimSpace(message.Sender.ID)),
+		"conversation_id":    nullIfEmpty(conversationID),
 		"inbound_message_id": message.ID,
 	})
 	return map[string]any{
@@ -874,12 +879,42 @@ func (service *bridgeService) runRuntimeCommand(message InboundMessage) (turnRes
 func (service *bridgeService) deliver(ctx context.Context, reply Reply, emitter *turnProgressEmitter) error {
 	result, err := service.bridge.SendReply(ctx, reply)
 	if err != nil {
+		discarded, discardErr := service.discardTerminalDiscoveryReply(reply, err)
+		if discardErr != nil {
+			return discardErr
+		}
+		if discarded {
+			emitter.Emit(ctx, turnProgress{Status: "failed", Stage: "delivery"}, "")
+			return nil
+		}
 		emitter.Emit(ctx, turnProgress{Status: "retrying", Stage: "delivery"}, "")
 		return err
 	}
 	markErr := service.store.MarkSent(reply.InboundMessageID)
 	emitter.Emit(ctx, turnProgress{Status: "completed", Stage: "delivery"}, result.MessageID)
 	return markErr
+}
+
+func (service *bridgeService) discardTerminalDiscoveryReply(reply Reply, err error) (bool, error) {
+	route, routeErr := agentbridge.DecodeRoute(reply.Route)
+	if routeErr != nil || !agentbridge.IsDiscoveryInquiryRoute(route) {
+		return false, nil
+	}
+	var rpcErr *agentbridge.RPCError
+	if !errors.As(err, &rpcErr) {
+		return false, nil
+	}
+	switch rpcErr.Code {
+	case "MESSAGE_INVALID",
+		"DISCOVERY_INQUIRY_DEADLINE_PASSED",
+		"DISCOVERY_INQUIRY_ALREADY_FINAL",
+		"DISCOVERY_INQUIRY_RECIPIENT_REVOKED",
+		"DISCOVERY_INQUIRY_NOT_FOUND":
+		log.Printf("message %s Discovery reply was discarded after terminal error %s", reply.InboundMessageID, rpcErr.Code)
+		return true, service.store.CompleteWithoutReply(reply.InboundMessageID, reply.Route, reply.ThreadID)
+	default:
+		return false, nil
+	}
 }
 
 func decodeMap(raw json.RawMessage) map[string]any {

@@ -210,6 +210,26 @@ func TestServicePublishesAgenrenaTurnUpdateOverAgentWebSocket(t *testing.T) {
 	}
 }
 
+func TestServiceSkipsTurnUpdateForNamespacedAgenrenaChat(t *testing.T) {
+	service := NewService(Config{})
+	route, err := EncodeRoute(Route{
+		Source: "agenrena", ChatID: "discovery_inquiry:inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.UpdateTurn(context.Background(), TurnUpdateParams{
+		Route: route, ReplyTo: "inquiry-1", TurnID: "turn-1",
+		Sequence: 1, Status: "thinking",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Accepted {
+		t.Fatal("virtual Agenrena chat unexpectedly accepted a Conversation turn update")
+	}
+}
+
 func writeExtendedServerFrame(writer io.Writer, payload []byte) {
 	header := []byte{0x81}
 	switch {

@@ -63,6 +63,9 @@ func (client *APIClient) SendMessage(ctx context.Context, params SendParams) (Se
 	if err != nil {
 		return SendResult{}, err
 	}
+	if IsDiscoveryInquiryRoute(route) && len(params.Media) > 0 {
+		return SendResult{}, bridgeError("MESSAGE_INVALID", "Discovery inquiry replies support text only", false)
+	}
 	params.Text = strings.TrimSpace(params.Text)
 	params.Format = strings.ToLower(strings.TrimSpace(params.Format))
 	if params.Format == "" {
@@ -433,6 +436,9 @@ func apiRPCError(err error, idempotent bool) error {
 		return bridgeError("DELIVERY_UNKNOWN", "message delivery outcome is unknown", false)
 	}
 	code := "API_ERROR"
+	if strings.HasPrefix(apiErr.Code, "DISCOVERY_INQUIRY_") {
+		code = apiErr.Code
+	}
 	recoverable := apiErr.Retryable()
 	if apiErr.Status == 401 || apiErr.Status == 403 {
 		code, recoverable = "AUTH_INVALID", false

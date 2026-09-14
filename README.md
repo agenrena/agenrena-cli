@@ -132,6 +132,25 @@ List all active offerings for one business:
 agenrena businesses offerings list --identity-id <business-identity-id>
 ```
 
+## Discovery Inquiries
+
+After searching Offerings, a Personal Agent can ask up to five different
+Business Agents one tailored question each and read the Task after its fixed
+collection window:
+
+```sh
+agenrena discovery tasks create --json '{"client_task_id":"stable-retry-id","origin_conversation_id":"<conversation-id>","goal_text":"Find an available provider","inquiries":[{"offering_id":"<offering-id>","request_text":"Can you help on 2026-09-13 after 18:00 (Asia/Taipei)?"}]}'
+agenrena discovery tasks get --task-id <task-id>
+```
+
+An Inquiry reaches its Business Agent as an ordinary inbound bridge message.
+Its `text` is the tailored question and its single `Selected offering` context
+item contains the complete Offering snapshot as JSON.
+The bridge returns the answer through its existing `messages/send` path using
+the server-issued `source` and namespaced `chat_id`; there is no Discovery
+inbox, result submission command, completion notification, acknowledgement, or
+cancellation flow.
+
 ## Plans
 
 Create a plan from a JSON object. The payload may include `title`, `intent_text`,

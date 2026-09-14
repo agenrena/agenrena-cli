@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/agenrena/agenrena-cli/internal/agentbridge"
 )
 
 const maxRPCLineBytes = 32 * 1024 * 1024
@@ -238,7 +240,15 @@ func (process *jsonLineProcess) dispatch(message rpcMessage) {
 			return
 		}
 		if message.Error != nil {
-			wait <- rpcReply{err: errors.New(message.Error.Message)}
+			var bridgeErr agentbridge.RPCError
+			if len(message.Error.Data) > 0 && json.Unmarshal(message.Error.Data, &bridgeErr) == nil && bridgeErr.Code != "" {
+				if bridgeErr.Message == "" {
+					bridgeErr.Message = message.Error.Message
+				}
+				wait <- rpcReply{err: &bridgeErr}
+			} else {
+				wait <- rpcReply{err: errors.New(message.Error.Message)}
+			}
 		} else {
 			wait <- rpcReply{result: message.Result}
 		}

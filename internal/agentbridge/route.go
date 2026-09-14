@@ -6,13 +6,20 @@ import (
 	"strings"
 )
 
-const routePrefix = "v1."
+const (
+	routePrefix                = "v1."
+	discoveryInquiryChatPrefix = "discovery_inquiry:"
+)
 
 type Route struct {
 	ChatID         string `json:"chat_id,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	Source         string `json:"source,omitempty"`
 	Version        int    `json:"v"`
+}
+
+func IsDiscoveryInquiryRoute(route Route) bool {
+	return route.Source == "agenrena" && strings.HasPrefix(route.ChatID, discoveryInquiryChatPrefix)
 }
 
 func EncodeRoute(route Route) (string, error) {

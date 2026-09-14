@@ -40,6 +40,65 @@ func TestSendMessageUsesConversationRouteAndStableClientID(t *testing.T) {
 	}
 }
 
+func TestSendMessageUsesNamespacedAgenrenaChatRoute(t *testing.T) {
+	var sent map[string]any
+	client := &APIClient{
+		BaseURL: "https://api.example", APIKey: "key", MaxAttempts: 1,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			sent = decodeTestJSONBody(t, request.Body)
+			return testJSONResponse(request, http.StatusOK, map[string]any{"message_id": "answer-1"}), nil
+		})},
+	}
+	route, err := EncodeRoute(Route{
+		Source: "agenrena", ChatID: "discovery_inquiry:inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.SendMessage(context.Background(), SendParams{
+		Route: route, ReplyTo: "inquiry-1", Text: "Available.",
+		ClientMessageID: "client-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent["source"] != "agenrena" ||
+		sent["chat_id"] != "discovery_inquiry:inquiry-1" ||
+		sent["reply_to_message_id"] != "inquiry-1" {
+		t.Fatalf("sent=%v", sent)
+	}
+	if _, exists := sent["conversation_id"]; exists {
+		t.Fatalf("virtual chat unexpectedly included conversation_id: %v", sent)
+	}
+}
+
+func TestSendMessageRejectsDiscoveryInquiryMediaBeforeSending(t *testing.T) {
+	requests := 0
+	client := &APIClient{
+		BaseURL: "https://api.example", APIKey: "key", MaxAttempts: 1,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requests++
+			return testJSONResponse(request, http.StatusOK, map[string]any{}), nil
+		})},
+	}
+	route, err := EncodeRoute(Route{
+		Source: "agenrena", ChatID: "discovery_inquiry:inquiry-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.SendMessage(context.Background(), SendParams{
+		Route: route, Text: "Available.", Media: []SendMedia{{Path: "must-not-be-read"}},
+	})
+	rpcErr, ok := err.(*RPCError)
+	if !ok || rpcErr.Code != "MESSAGE_INVALID" || rpcErr.Recoverable {
+		t.Fatalf("err=%+v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("Discovery media unexpectedly made %d HTTP requests", requests)
+	}
+}
+
 func TestSendMessageSplitsTextAndImagesIntoExclusivePlatformMessages(t *testing.T) {
 	imagePath := writeOutboundTestImage(t)
 	var sent []map[string]any
@@ -259,6 +318,15 @@ func TestNetworkErrorIsRecoverableOnlyWithIdempotency(t *testing.T) {
 	}
 	if withoutID == nil || withoutID.Code != "DELIVERY_UNKNOWN" || withoutID.Recoverable {
 		t.Fatalf("unkeyed error=%+v", withoutID)
+	}
+}
+
+func TestAPIRPCErrorPreservesApplicationErrorCode(t *testing.T) {
+	rpcErr, _ := apiRPCError(&APIError{
+		Status: http.StatusConflict, Code: "DISCOVERY_INQUIRY_DEADLINE_PASSED", Message: "deadline passed",
+	}, true).(*RPCError)
+	if rpcErr == nil || rpcErr.Code != "DISCOVERY_INQUIRY_DEADLINE_PASSED" || rpcErr.Recoverable {
+		t.Fatalf("error=%+v", rpcErr)
 	}
 }
 
