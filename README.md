@@ -13,12 +13,20 @@ calling APIs directly.
 curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.sh | sh
 ```
 
-The installer supports macOS and Linux on Apple Silicon/ARM64 and Intel/AMD64.
-It installs `agenrena` and the matching `agenrena-rtc-helper` to `~/.local/bin`
-by default. The helper stays stopped unless an Agent runtime accepts a voice
-call through the Agent Bridge.
+On 64-bit Windows, run this in PowerShell:
 
-If needed:
+```powershell
+irm https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.ps1 | iex
+```
+
+The Unix installer supports macOS and Linux on Apple Silicon/ARM64 and
+Intel/AMD64. The Windows installer supports AMD64 and installs the CLI only;
+voice calls are not yet supported on Windows.
+It installs `agenrena` and the matching `agenrena-rtc-helper` to `~/.local/bin`
+by default on macOS and Linux. The helper stays stopped unless an Agent runtime
+accepts a voice call through the Agent Bridge.
+
+On macOS and Linux, add the install directory to `PATH` if needed:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -432,6 +440,12 @@ If `XDG_CONFIG_HOME` is not set:
 
 ```text
 ~/.config/agenrena/credentials.json
+```
+
+On Windows, credentials are stored in:
+
+```text
+%APPDATA%\agenrena\credentials.json
 ```
 
 Environment overrides:

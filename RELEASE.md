@@ -28,13 +28,15 @@ make release
 
 `make release` runs checks, verifies the working tree is clean, creates the
 matching `v<version>` tag if needed, pushes `main`, and pushes the tag. The tag push
-should trigger GitHub Actions to build the assets consumed by `install.sh`:
+should trigger GitHub Actions to build the assets consumed by `install.sh` and
+`install.ps1`:
 
 ```text
 agenrena-darwin-arm64
 agenrena-darwin-amd64
 agenrena-linux-arm64
 agenrena-linux-amd64
+agenrena-windows-amd64.exe
 agenrena-rtc-helper-darwin-arm64.tar.gz
 agenrena-rtc-helper-darwin-amd64.tar.gz
 agenrena-rtc-helper-linux-arm64
@@ -44,3 +46,5 @@ agenrena-rtc-helper-linux-amd64
 The macOS helper archives include the helper and its adjacent `libopus` and
 `libsoxr` dynamic libraries. Linux helper assets are statically linked single
 binaries. `install.sh` installs the matching helper together with the CLI.
+`install.ps1` installs the Windows AMD64 CLI only; Windows voice calls and the
+RTC helper are not currently supported.

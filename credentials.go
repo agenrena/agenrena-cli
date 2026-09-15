@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type Credentials struct {
@@ -19,6 +20,13 @@ func configDir() (string, error) {
 		return dir, nil
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "agenrena"), nil
+	}
+	if runtime.GOOS == "windows" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
 		return filepath.Join(dir, "agenrena"), nil
 	}
 	home, err := os.UserHomeDir()

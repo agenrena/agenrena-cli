@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,9 +13,19 @@ import (
 )
 
 const (
-	githubRepo     = "agenrena/agenrena-cli"
-	installCommand = "curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.sh | sh"
+	githubRepo            = "agenrena/agenrena-cli"
+	unixInstallCommand    = "curl -fsSL https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.sh | sh"
+	windowsInstallCommand = "irm https://raw.githubusercontent.com/agenrena/agenrena-cli/main/install.ps1 | iex"
 )
+
+func installCommandForOS(goos string) string {
+	if goos == "windows" {
+		return windowsInstallCommand
+	}
+	return unixInstallCommand
+}
+
+func installCommand() string { return installCommandForOS(runtime.GOOS) }
 
 type updateInfo struct {
 	Available      bool   `json:"available"`
@@ -29,7 +40,7 @@ type updateInfo struct {
 func checkForUpdate(ctx context.Context) updateInfo {
 	info := updateInfo{
 		CurrentVersion: buildinfo.Version,
-		InstallCommand: installCommand,
+		InstallCommand: installCommand(),
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

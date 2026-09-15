@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/agenrena/agenrena-cli/internal/buildinfo"
 )
@@ -16,6 +17,11 @@ func runDoctor(ctx context.Context, args []string) error {
 		"cli_version": buildinfo.Version,
 		"api_base":    apiBaseFromEnv(),
 		"update":      update,
+		"platform": map[string]any{
+			"os":                    runtime.GOOS,
+			"arch":                  runtime.GOARCH,
+			"voice_calls_supported": runtime.GOOS != "windows",
+		},
 	}
 
 	path, pathErr := credentialsPath()

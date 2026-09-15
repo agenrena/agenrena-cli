@@ -17,12 +17,19 @@ jobs:
         include:
           - goos: darwin
             goarch: arm64
+            asset: agenrena-darwin-arm64
           - goos: darwin
             goarch: amd64
+            asset: agenrena-darwin-amd64
           - goos: linux
             goarch: amd64
+            asset: agenrena-linux-amd64
           - goos: linux
             goarch: arm64
+            asset: agenrena-linux-arm64
+          - goos: windows
+            goarch: amd64
+            asset: agenrena-windows-amd64.exe
 
     steps:
       - name: Checkout
@@ -40,13 +47,32 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "dist/agenrena-${GOOS}-${GOARCH}" .
+          go build -trimpath -ldflags="-s -w" -o "dist/${{ matrix.asset }}" .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agenrena-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/agenrena-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+
+  test-windows:
+    name: Test Windows CLI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -trimpath -ldflags="-s -w" -o agenrena-windows-amd64.exe .
 
   build-rtc-helper:
     name: Build RTC helper (${{ matrix.goos }}/${{ matrix.goarch }})
@@ -146,7 +172,7 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build, build-rtc-helper]
+    needs: [build, build-rtc-helper, test-windows]
 
     steps:
       - name: Download artifacts

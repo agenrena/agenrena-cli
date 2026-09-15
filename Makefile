@@ -3,7 +3,7 @@ SHELL := /bin/sh
 BIN_NAME := agenrena
 LOCAL_BIN := agenrena-cli
 DIST_DIR := dist
-PLATFORMS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
+PLATFORMS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64
 VERSION ?= $(shell sed -n 's/^[[:space:]]*const Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/buildinfo/version.go)
 TAG ?= v$(VERSION)
 LDFLAGS := -s -w
@@ -51,6 +51,7 @@ dist: check clean-dist
 		os=$${target%/*}; \
 		arch=$${target#*/}; \
 		asset="$(BIN_NAME)-$${os}-$${arch}"; \
+		if test "$$os" = "windows"; then asset="$${asset}.exe"; fi; \
 		echo "Building $${asset}"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o "$(DIST_DIR)/$${asset}" .; \
 	done

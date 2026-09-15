@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -90,6 +91,13 @@ func agentBridgeStateDir() (string, error) {
 	}
 	if value := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); value != "" {
 		return filepath.Join(value, "agenrena", "agent-bridge"), nil
+	}
+	if runtime.GOOS == "windows" {
+		dir, err := os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, "Agenrena", "agent-bridge"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

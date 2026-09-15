@@ -361,6 +361,10 @@ the plugin, command-line arguments, logs, or the local media socket.
 
 ### `calls/accept`
 
+This method requires `agenrena-rtc-helper` on macOS and Linux. Windows builds
+currently return `RTC_HELPER_UNAVAILABLE`; text, image, and sticker bridge
+operations remain available.
+
 Accepts a pending invitation and starts the optional RTC helper. A plugin may
 request one supported sample rate for both incoming user audio and outgoing
 Agent audio:

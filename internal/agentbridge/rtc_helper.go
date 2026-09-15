@@ -121,6 +121,13 @@ func (manager *RTCHelperManager) Accept(ctx context.Context, params AcceptCallPa
 	if callID == "" {
 		return AcceptCallResult{}, bridgeError("MESSAGE_INVALID", "callId is required", false)
 	}
+	if !rtcPlatformSupported() {
+		return AcceptCallResult{}, bridgeError(
+			"RTC_HELPER_UNAVAILABLE",
+			"voice calls are not supported by the Windows build",
+			false,
+		)
+	}
 	sampleRateHz := defaultCallSampleRateHz
 	if params.Audio != nil && params.Audio.SampleRateHz != 0 {
 		sampleRateHz = params.Audio.SampleRateHz
