@@ -171,6 +171,12 @@ func (process *jsonLineProcess) Close(grace time.Duration) {
 		if process.cmd.Process != nil {
 			_ = process.cmd.Process.Kill()
 		}
+		// Wait for cmd.Wait to finish so Windows releases the executable before
+		// callers (especially go test) attempt to replace or remove it.
+		select {
+		case <-process.exit:
+		case <-time.After(grace):
+		}
 	}
 }
 

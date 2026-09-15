@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -553,7 +554,7 @@ func (client *APIClient) prepareOutboundImage(ctx context.Context, input SendMed
 }
 
 func readLocalImage(path string) ([]byte, error) {
-	if !strings.HasPrefix(path, "/") {
+	if !filepath.IsAbs(path) {
 		return nil, bridgeError("MEDIA_INVALID", "local media path must be absolute", false)
 	}
 	info, err := os.Stat(path)

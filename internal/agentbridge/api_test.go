@@ -198,6 +198,13 @@ func TestPrepareOutboundImageRejectsOriginalOverFiveMiB(t *testing.T) {
 	}
 }
 
+func TestPrepareOutboundImageRejectsRelativePath(t *testing.T) {
+	_, err := (&APIClient{}).prepareOutboundImage(context.Background(), SendMedia{Path: "image.png"})
+	if err == nil || !strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("error = %v, want absolute path validation", err)
+	}
+}
+
 func TestSendMessageReportsPartialDeliveryWhenImageMessageFails(t *testing.T) {
 	imagePath := writeOutboundTestImage(t)
 	sends := 0

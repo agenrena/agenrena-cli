@@ -3,7 +3,6 @@
 package codexbridge
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -20,8 +19,14 @@ func pidIsAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	output, err := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH").Output()
-	return err == nil && bytes.Contains(output, []byte(fmt.Sprintf("\"%d\"", pid)))
+	handle, err := syscall.OpenProcess(syscall.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return false
+	}
+	defer syscall.CloseHandle(handle)
+	const waitTimeout = 258
+	state, err := syscall.WaitForSingleObject(handle, 0)
+	return err == nil && state == waitTimeout
 }
 
 func terminatePID(pid int) error { return exec.Command("taskkill", "/PID", fmt.Sprint(pid)).Run() }
