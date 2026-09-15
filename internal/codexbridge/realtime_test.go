@@ -99,7 +99,7 @@ func TestCodexRealtimeHelperProcess(t *testing.T) {
 }
 
 func TestMediaSocketHandshakeAndRealtimeControl(t *testing.T) {
-	dir, err := os.MkdirTemp("/private/tmp", "acb-media-")
+	dir, err := os.MkdirTemp("/tmp", "acb-media-")
 	if err != nil {
 		t.Fatal(err)
 	}
