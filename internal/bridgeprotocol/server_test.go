@@ -102,7 +102,7 @@ func TestServerRunsInitializeSendAndShutdown(t *testing.T) {
 func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
 	input := strings.Join([]string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientInfo":{"name":"hermes","version":"1"},"agent":{"type":"hermes"}}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"conversations/handoff","params":{"route":"v1.route"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"conversations/handoff","params":{"route":"v1.route","reason":"Needs a refund decision."}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}`,
 	}, "\n") + "\n"
 	backend := newFakeBackend()
@@ -110,7 +110,7 @@ func TestServerDispatchesHandoffAfterInitialize(t *testing.T) {
 	if err := NewServer(strings.NewReader(input), &output, backend).Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if backend.handedOff.Route != "v1.route" {
+	if backend.handedOff.Route != "v1.route" || backend.handedOff.Reason != "Needs a refund decision." {
 		t.Fatalf("handoff params=%+v", backend.handedOff)
 	}
 	lines := decodeOutputLines(t, output.String())

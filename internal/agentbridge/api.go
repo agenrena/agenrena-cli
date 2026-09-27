@@ -199,6 +199,10 @@ func partialDeliveryError(err error, failedPart string, deliveredMessageIDs []st
 // agent's conversation from one that does not exist. That single reply means
 // "this route has nothing to hand off", so it becomes HANDOFF_UNSUPPORTED like
 // the route check above rather than a generic API error.
+//
+// A non-empty reason becomes the body of the push Agenrena sends the owner.
+// Agenrena rejects a reason longer than handoffReasonMaxLength, which would
+// fail the handoff itself, so an overlong reason is shortened here instead.
 func (client *APIClient) Handoff(ctx context.Context, params HandoffParams) (HandoffResult, error) {
 	route, err := DecodeRoute(params.Route)
 	if err != nil {
@@ -208,7 +212,11 @@ func (client *APIClient) Handoff(ctx context.Context, params HandoffParams) (Han
 		return HandoffResult{}, bridgeError("HANDOFF_UNSUPPORTED", "handoff requires a route with an Agenrena conversation", false)
 	}
 	endpoint := "/channels/conversations/" + url.PathEscape(route.ConversationID) + "/handoff/"
-	result, err := client.doJSONWithRetry(ctx, http.MethodPost, endpoint, nil, true)
+	var body any
+	if reason := handoffReason(params.Reason); reason != "" {
+		body = map[string]any{"reason": reason}
+	}
+	result, err := client.doJSONWithRetry(ctx, http.MethodPost, endpoint, body, true)
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok && apiErr.Status == http.StatusNotFound {
 			return HandoffResult{}, bridgeError("HANDOFF_UNSUPPORTED", "route has no Agenrena conversation the agent can hand off", false)
@@ -219,6 +227,18 @@ func (client *APIClient) Handoff(ctx context.Context, params HandoffParams) (Han
 		Responder:  valueString(result["responder"]),
 		SwitchedAt: valueString(result["switched_at"]),
 	}, nil
+}
+
+// handoffReasonMaxLength matches Agenrena's limit, which counts code points.
+const handoffReasonMaxLength = 200
+
+func handoffReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	runes := []rune(reason)
+	if len(runes) <= handoffReasonMaxLength {
+		return reason
+	}
+	return strings.TrimSpace(string(runes[:handoffReasonMaxLength-1])) + "…"
 }
 
 func applyRoute(body map[string]any, route Route) {

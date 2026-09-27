@@ -336,7 +336,7 @@ func TestAgentBridgeHandoffUsesOpaqueRoute(t *testing.T) {
 	if err := client.Initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Handoff(ctx, "opaque.handoff"); err != nil {
+	if err := client.Handoff(ctx, "opaque.handoff", "Needs a refund decision."); err != nil {
 		t.Fatal(err)
 	}
 	client.Shutdown()
@@ -373,7 +373,7 @@ func TestAgentBridgeHelperProcess(t *testing.T) {
 			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"state": "connected"}})
 		case "conversations/handoff":
 			params := mapValue(request["params"])
-			if params["route"] != "opaque.handoff" {
+			if params["route"] != "opaque.handoff" || params["reason"] != "Needs a refund decision." {
 				os.Exit(2)
 			}
 			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"responder": "human"}})
@@ -422,7 +422,7 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 		t.Fatal(err)
 	}
 	var progress []turnProgress
-	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: route, Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context) error { return nil }, func(update turnProgress) {
+	first, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m1", Route: route, Sender: Sender{ID: "owner-id"}, Text: "first"}, "", func(context.Context, string) error { return nil }, func(update turnProgress) {
 		progress = append(progress, update)
 	})
 	if err != nil {
@@ -434,7 +434,7 @@ func TestCodexRunnerReturnsFinalAnswerAndRefreshesSender(t *testing.T) {
 	if len(progress) < 2 || progress[0].Status != "thinking" || progress[len(progress)-1].Stage != "final_answer" {
 		t.Fatalf("progress = %#v", progress)
 	}
-	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: route, Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context) error { return nil }, nil); err != nil {
+	if _, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m2", Route: route, Sender: Sender{ID: "guest-id"}, Text: "second"}, first.ThreadID, func(context.Context, string) error { return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(capture)
@@ -528,8 +528,10 @@ func TestCodexRunnerHandoffAndImageOutput(t *testing.T) {
 		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
 	}}
 	calls := 0
-	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-image", Route: "opaque", Text: "human please"}, "", func(context.Context) error {
+	reason := ""
+	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-image", Route: "opaque", Text: "human please"}, "", func(_ context.Context, handoffReason string) error {
 		calls++
+		reason = handoffReason
 		return nil
 	}, nil)
 	if err != nil {
@@ -537,6 +539,9 @@ func TestCodexRunnerHandoffAndImageOutput(t *testing.T) {
 	}
 	if calls != 1 || !result.HandedOff || len(result.Media) != 1 || result.Media[0].Data != testPNGBase64 {
 		t.Fatalf("result = %#v, handoff calls = %d", result, calls)
+	}
+	if reason != "The customer asked for a human." {
+		t.Fatalf("handoff reason = %q", reason)
 	}
 }
 
@@ -556,7 +561,7 @@ func TestCodexRunnerAttachesWorkspaceImage(t *testing.T) {
 		Workspace: root, CodexCommand: []string{os.Args[0], "-test.run=TestCodexHelperProcess"},
 		SandboxMode: "read-only", ApprovalPolicy: "never", TurnTimeout: 2 * time.Second,
 	}}
-	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-attach", Route: "opaque", Text: "send the diagram"}, "", func(context.Context) error { return nil }, nil)
+	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-attach", Route: "opaque", Text: "send the diagram"}, "", func(context.Context, string) error { return nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +597,7 @@ func TestCodexRunnerRejectsAttachmentOutsideWorkspace(t *testing.T) {
 	if err := os.MkdirAll(runner.settings.Workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-reject", Route: "opaque", Text: "send the secret"}, "", func(context.Context) error { return nil }, nil)
+	result, err := runner.RunTurn(context.Background(), InboundMessage{ID: "m-reject", Route: "opaque", Text: "send the secret"}, "", func(context.Context, string) error { return nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +631,8 @@ func TestCodexHelperProcess(t *testing.T) {
 			_ = encoder.Encode(map[string]any{"id": id, "result": map[string]any{"turn": map[string]any{"id": "turn-1"}}})
 			switch mode {
 			case "handoff-image":
-				_ = encoder.Encode(map[string]any{"id": 99, "method": "item/tool/call", "params": map[string]any{"turnId": "turn-1", "tool": handoffToolName}})
+				arguments, _ := json.Marshal(map[string]any{"reason": "The customer asked for a human."})
+				_ = encoder.Encode(map[string]any{"id": 99, "method": "item/tool/call", "params": map[string]any{"turnId": "turn-1", "tool": handoffToolName, "arguments": string(arguments)}})
 			case "attach-image":
 				arguments, _ := json.Marshal(map[string]any{"path": os.Getenv("CODEX_HELPER_ATTACH_PATH")})
 				_ = encoder.Encode(map[string]any{"id": 98, "method": "item/tool/call", "params": map[string]any{"turnId": "turn-1", "tool": attachImageToolName, "arguments": string(arguments)}})

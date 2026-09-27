@@ -272,6 +272,47 @@ func TestHandoffPostsToTheConversationOfTheRoute(t *testing.T) {
 	}
 }
 
+func TestHandoffSendsTheReasonForTheOwnerNotification(t *testing.T) {
+	cases := []struct {
+		name, reason string
+		want         any
+	}{
+		{name: "no reason sends no body", reason: "   ", want: nil},
+		{name: "reason is trimmed", reason: "  Bob wants a refund past 30 days.  ", want: map[string]any{"reason": "Bob wants a refund past 30 days."}},
+		{name: "overlong reason is shortened", reason: strings.Repeat("退", 250), want: map[string]any{"reason": strings.Repeat("退", 199) + "…"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent any
+			client := &APIClient{
+				BaseURL: "https://api.example", APIKey: "key", MaxAttempts: 1,
+				HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					if request.Body != nil && request.Body != http.NoBody {
+						sent = decodeTestJSONBody(t, request.Body)
+					}
+					return testJSONResponse(request, http.StatusOK, map[string]any{"responder": "human"}), nil
+				})},
+			}
+			route, err := EncodeRoute(Route{ConversationID: "conversation-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Handoff(context.Background(), HandoffParams{Route: route, Reason: tc.reason}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == nil {
+				if sent != nil {
+					t.Fatalf("sent=%v, want no body", sent)
+				}
+				return
+			}
+			if !reflect.DeepEqual(sent, tc.want) {
+				t.Fatalf("sent=%v, want %v", sent, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandoffRejectsARouteWithoutAnAgenrenaConversation(t *testing.T) {
 	client := &APIClient{
 		BaseURL: "https://api.example", APIKey: "key", MaxAttempts: 1,

@@ -128,8 +128,9 @@ func (client *agentBridgeClient) SendTurnUpdate(ctx context.Context, update agen
 	return nil
 }
 
-func (client *agentBridgeClient) Handoff(ctx context.Context, route string) error {
-	return client.process.Request(ctx, "conversations/handoff", map[string]any{"route": route}, 30*time.Second, nil)
+func (client *agentBridgeClient) Handoff(ctx context.Context, route, reason string) error {
+	params := agentbridge.HandoffParams{Route: route, Reason: reason}
+	return client.process.Request(ctx, "conversations/handoff", params, 30*time.Second, nil)
 }
 
 func (client *agentBridgeClient) Shutdown() {
@@ -164,7 +165,7 @@ var optOutNotifications = []string{
 	"mcpServer/startupStatus/updated", "thread/status/changed", "thread/tokenUsage/updated",
 }
 
-func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context) error, progress func(turnProgress)) (turnResult, error) {
+func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context, string) error, progress func(turnProgress)) (turnResult, error) {
 	args := []string{"app-server", "-c", fmt.Sprintf("approval_policy=%q", runner.settings.ApprovalPolicy), "-c", fmt.Sprintf("sandbox_mode=%q", runner.settings.SandboxMode)}
 	if runner.settings.Model != "" {
 		args = append(args, "-c", fmt.Sprintf("model=%q", runner.settings.Model))
@@ -248,7 +249,7 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	return result, err
 }
 
-func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context) error, attach func(string) (Media, error), progress func(turnProgress)) (turnResult, error) {
+func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context, string) error, attach func(string) (Media, error), progress func(turnProgress)) (turnResult, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	messages := make(map[string]map[string]string)
@@ -276,7 +277,7 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 			if request.Method == "item/tool/call" && stringValue(params["tool"]) == handoffToolName {
 				if !handoffCalled {
 					handoffCalled = true
-					handoffErr = handoff(ctx)
+					handoffErr = handoff(ctx, stringValue(toolArguments(params)["reason"]))
 					handedOff = handoffErr == nil
 				}
 				if handoffErr != nil {
@@ -447,7 +448,16 @@ func handoffTool() map[string]any {
 	return map[string]any{
 		"type": "function", "name": handoffToolName,
 		"description": "Immediately return the current Agenrena conversation to its human responder. Use this when the conversation should no longer be handled by Codex.",
-		"inputSchema": map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{}},
+		"inputSchema": map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]any{
+				"reason": map[string]any{
+					"type":        "string",
+					"description": "One sentence, at most 200 characters, telling the human why they need to take over. It is sent to them verbatim as the notification.",
+				},
+			},
+			"required": []any{"reason"},
+		},
 	}
 }
 
@@ -820,8 +830,8 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 		emitter.Emit(ctx, turnProgress{Status: "started"}, "")
 		result, handled, err := service.runRuntimeCommand(message)
 		if !handled {
-			result, err = service.codex.RunTurn(ctx, message, service.store.ThreadID(message.Route), func(callCtx context.Context) error {
-				return service.bridge.Handoff(callCtx, message.Route)
+			result, err = service.codex.RunTurn(ctx, message, service.store.ThreadID(message.Route), func(callCtx context.Context, reason string) error {
+				return service.bridge.Handoff(callCtx, message.Route, reason)
 			}, func(progress turnProgress) {
 				emitter.Emit(ctx, progress, "")
 			})

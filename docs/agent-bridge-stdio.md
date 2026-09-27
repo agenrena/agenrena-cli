@@ -230,12 +230,16 @@ being the responder until a human delegates the conversation back to it.
 Request:
 
 ```json
-{"jsonrpc":"2.0","id":3,"method":"conversations/handoff","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0"}}
+{"jsonrpc":"2.0","id":3,"method":"conversations/handoff","params":{"route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0","reason":"Bob wants a refund past the 30-day window."}}
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `route` | yes | Opaque route issued by the CLI. |
+| `reason` | no | One sentence telling the owner why they need to take over. Agenrena sends it verbatim as the body of the push notification to the owner; without it the push uses Agenrena's default copy. It is not stored. The CLI trims it and shortens anything over 200 characters. |
+
+A retried handoff of an already-human conversation sends no second
+notification, so its `reason` is ignored.
 
 Successful response:
 

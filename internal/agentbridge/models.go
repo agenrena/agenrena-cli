@@ -202,7 +202,8 @@ type TurnUpdateResult struct {
 }
 
 type HandoffParams struct {
-	Route string `json:"route"`
+	Route  string `json:"route"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type HandoffResult struct {
