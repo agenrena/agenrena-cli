@@ -174,6 +174,16 @@ func decodeAPIError(resp *http.Response, raw []byte) error {
 		}
 	}
 
+	if code == "AGENT_PERMISSION_DENIED" {
+		message = "Agent lacks the required permission."
+		if details, ok := params.(map[string]any); ok {
+			if permission, ok := details["required_permission"].(string); ok && strings.TrimSpace(permission) != "" {
+				message = fmt.Sprintf("Agent lacks the required permission: %s.", permission)
+			}
+		}
+		message += " Ask an authorized manager to grant it in Agenrena Business(Business Console)."
+	}
+
 	return &cliError{
 		Code:        code,
 		Message:     message,
