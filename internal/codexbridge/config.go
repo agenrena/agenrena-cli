@@ -15,7 +15,7 @@ import (
 const (
 	agentBridgeProtocolVersion = 1
 	configSchemaVersion        = 2
-	threadToolsSchemaVersion   = 3
+	threadToolsSchemaVersion   = 4
 	maxCompletedIDs            = 5000
 	maxOutboundMediaCount      = 9
 	maxOutboundMediaBytes      = 5 * 1024 * 1024

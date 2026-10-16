@@ -136,7 +136,7 @@ func (store *MediaStore) Materialize(ctx context.Context, messageID string, sour
 			kind = "image"
 		}
 		result = append(result, MaterializedMedia{
-			Kind: kind, Path: absolute, MIMEType: mimeType, SizeBytes: len(data),
+			ID: source.ID, Kind: kind, Path: absolute, MIMEType: mimeType, SizeBytes: len(data),
 			Width: width, Height: height,
 		})
 	}

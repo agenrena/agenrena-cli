@@ -64,6 +64,7 @@ type Sender struct {
 }
 
 type MaterializedMedia struct {
+	ID        string `json:"id,omitempty"`
 	Kind      string `json:"kind"`
 	Path      string `json:"path"`
 	MIMEType  string `json:"mimeType"`
@@ -179,12 +180,13 @@ type SendMedia struct {
 }
 
 type SendParams struct {
-	Route           string      `json:"route"`
-	ReplyTo         string      `json:"replyTo,omitempty"`
-	ClientMessageID string      `json:"clientMessageId,omitempty"`
-	Text            string      `json:"text,omitempty"`
-	Format          string      `json:"format,omitempty"`
-	Media           []SendMedia `json:"media,omitempty"`
+	InputRequest    map[string]any `json:"inputRequest,omitempty"`
+	Route           string         `json:"route"`
+	ReplyTo         string         `json:"replyTo,omitempty"`
+	ClientMessageID string         `json:"clientMessageId,omitempty"`
+	Text            string         `json:"text,omitempty"`
+	Format          string         `json:"format,omitempty"`
+	Media           []SendMedia    `json:"media,omitempty"`
 }
 
 type SendResult struct {
@@ -224,6 +226,7 @@ type Event struct {
 }
 
 type rawInboundMedia struct {
+	ID       string
 	Kind     string
 	URL      string
 	MIMEType string

@@ -152,11 +152,13 @@ func (client *agentBridgeClient) Shutdown() {
 }
 
 type turnResult struct {
-	ThreadID  string
-	TurnID    string
-	Text      string
-	Media     []Media
-	HandedOff bool
+	InputRequestSent      bool
+	InputRequestMessageID string
+	ThreadID              string
+	TurnID                string
+	Text                  string
+	Media                 []Media
+	HandedOff             bool
 }
 
 type codexRunner struct {
@@ -176,7 +178,7 @@ var optOutNotifications = []string{
 	"mcpServer/startupStatus/updated", "thread/status/changed", "thread/tokenUsage/updated",
 }
 
-func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context, string) error, progress func(turnProgress)) (turnResult, error) {
+func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, threadID string, handoff func(context.Context, string) error, progress func(turnProgress), options ...turnToolOptions) (turnResult, error) {
 	args := []string{"app-server", "-c", fmt.Sprintf("approval_policy=%q", runner.settings.ApprovalPolicy), "-c", fmt.Sprintf("sandbox_mode=%q", runner.settings.SandboxMode)}
 	if runner.settings.Model != "" {
 		args = append(args, "-c", fmt.Sprintf("model=%q", runner.settings.Model))
@@ -201,7 +203,7 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	}
 	threadParams := map[string]any{
 		"cwd": runner.settings.Workspace, "approvalPolicy": runner.settings.ApprovalPolicy,
-		"developerInstructions": transportPolicyInstructions(),
+		"developerInstructions": transportPolicyInstructions() + "\n" + inputRequestInstructions,
 	}
 	if runner.settings.Model != "" {
 		threadParams["model"] = runner.settings.Model
@@ -211,7 +213,7 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 		method = "thread/resume"
 		threadParams["threadId"] = threadID
 	} else {
-		threadParams["dynamicTools"] = []any{handoffTool(), attachImageTool()}
+		threadParams["dynamicTools"] = []any{handoffTool(), attachImageTool(), inputRequestTool()}
 	}
 	var threadResponse struct {
 		Thread struct {
@@ -227,6 +229,9 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	inputs, err := turnInputs(message)
 	if err != nil {
 		return turnResult{}, err
+	}
+	if route, err := agentbridge.DecodeRoute(message.Route); err == nil && route.Source == "line" {
+		inputs = append([]any{textInput("LINE channel: Include at most 5 images in this reply, counting generated images and attached images together.")}, inputs...)
 	}
 	policy, err := sandboxPolicy(runner.settings.SandboxMode)
 	if err != nil {
@@ -254,13 +259,13 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	if progress != nil {
 		progress(turnProgress{Status: "thinking", Stage: "reasoning"})
 	}
-	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, runner.attachmentResolver(message), progress)
+	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, runner.attachmentResolver(message), progress, options...)
 	result.ThreadID = threadResponse.Thread.ID
 	result.TurnID = turnResponse.Turn.ID
 	return result, err
 }
 
-func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context, string) error, attach func(string) (Media, error), progress func(turnProgress)) (turnResult, error) {
+func collectTurn(parent context.Context, client *jsonLineProcess, turnID string, timeout time.Duration, handoff func(context.Context, string) error, attach func(string) (Media, error), progress func(turnProgress), options ...turnToolOptions) (turnResult, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	messages := make(map[string]map[string]string)
@@ -268,8 +273,14 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 	imageKeys := make(map[string]bool)
 	fallback, final := "", ""
 	handedOff := false
+	inputRequestSent := false
+	inputRequestMessageID := ""
 	handoffCalled := false
 	var handoffErr error
+	var toolOptions turnToolOptions
+	if len(options) > 0 {
+		toolOptions = options[0]
+	}
 
 	addImage := func(media Media) bool {
 		key := mediaIdentity(media)
@@ -285,6 +296,35 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 		select {
 		case request := <-client.requests:
 			params := decodeMap(request.Params)
+			if request.Method == "item/tool/call" && stringValue(params["tool"]) == inputRequestToolName {
+				var sendErr error
+				var sent agentbridge.SendResult
+				if toolOptions.sendInputRequest == nil || handedOff {
+					sendErr = errors.New("input request sending is unavailable for this turn")
+				} else {
+					callID := stringValue(params["callId"])
+					if callID == "" {
+						callID = string(request.ID)
+					}
+					sent, sendErr = toolOptions.sendInputRequest(ctx, callID, toolArguments(params))
+				}
+				resultText := "The form was sent to the customer. Finish this turn; the submission will arrive as a new message."
+				if sendErr != nil {
+					resultText = sendErr.Error()
+					var rpc *agentbridge.RPCError
+					if errors.As(sendErr, &rpc) && rpc.Fields != nil {
+						if details, err := json.Marshal(rpc.Fields); err == nil {
+							resultText += " Fields: " + string(details)
+						}
+					}
+				} else {
+					inputRequestSent = true
+					inputRequestMessageID = sent.MessageID
+					resultText += " Request message ID: " + sent.MessageID
+				}
+				_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": resultText}}, "success": sendErr == nil})
+				continue
+			}
 			if request.Method == "item/tool/call" && stringValue(params["tool"]) == handoffToolName {
 				if !handoffCalled {
 					handoffCalled = true
@@ -333,13 +373,13 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 					return turnResult{}, errors.New(message)
 				}
 				answer := strings.TrimSpace(final)
-				if answer == "" {
+				if answer == "" && !inputRequestSent {
 					answer = strings.TrimSpace(fallback)
 				}
-				if answer == "" && len(images) == 0 && !handedOff {
+				if answer == "" && len(images) == 0 && !handedOff && !inputRequestSent {
 					return turnResult{}, errors.New("Codex completed without a final message or generated image")
 				}
-				return turnResult{Text: answer, Media: images, HandedOff: handedOff}, nil
+				return turnResult{Text: answer, Media: images, HandedOff: handedOff, InputRequestSent: inputRequestSent, InputRequestMessageID: inputRequestMessageID}, nil
 			}
 			if stringValue(params["turnId"]) != turnID {
 				continue
@@ -631,6 +671,11 @@ func turnInputs(message InboundMessage) ([]any, error) {
 		return batchTurnInputs(message)
 	}
 	inputs := make([]any, 0, 2+len(message.Media))
+	answers, err := inputResponseInputs(message)
+	if err != nil {
+		return nil, err
+	}
+	inputs = append(inputs, answers...)
 	if len(message.Context) > 0 {
 		encoded, _ := json.Marshal(message.Context)
 		inputs = append(inputs, textInput("Agenrena referenced context: "+string(encoded)))
@@ -649,6 +694,13 @@ func turnInputs(message InboundMessage) ([]any, error) {
 	}
 	if len(inputs) == 0 {
 		return nil, errors.New("a Codex turn requires text or media input")
+	}
+	if len(message.Capabilities) > 0 {
+		encoded, err := json.Marshal(message.Capabilities)
+		if err != nil {
+			return nil, fmt.Errorf("invalid channel capabilities: %w", err)
+		}
+		inputs = append([]any{textInput("Agenrena channel capabilities: " + string(encoded))}, inputs...)
 	}
 	return inputs, nil
 }
@@ -865,7 +917,7 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 				return service.bridge.Handoff(callCtx, message.Route, reason)
 			}, func(progress turnProgress) {
 				emitter.Emit(ctx, progress, "")
-			})
+			}, turnToolOptions{sendInputRequest: service.inputRequestSender(message)})
 		}
 		if err != nil {
 			status := "failed"
@@ -879,6 +931,10 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 		}
 		if result.HandedOff {
 			emitter.Emit(ctx, turnProgress{Status: "interrupted", Stage: "handoff"}, "")
+			return service.store.CompleteWithoutReply(message.ID, message.Route, result.ThreadID)
+		}
+		if result.InputRequestSent && strings.TrimSpace(result.Text) == "" && len(result.Media) == 0 {
+			emitter.Emit(ctx, turnProgress{Status: "completed", Stage: "delivery"}, result.InputRequestMessageID)
 			return service.store.CompleteWithoutReply(message.ID, message.Route, result.ThreadID)
 		}
 		clientMessageID := "codex-" + message.ID

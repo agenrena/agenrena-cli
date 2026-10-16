@@ -605,3 +605,55 @@ The client file contains lines written by a plugin to stdin. The server file
 contains one valid ordering of lines written by the CLI to stdout. Plugin
 implementations should use these and additional malformed/error fixtures as
 protocol contract tests.
+
+
+## Customer input forms
+
+Codex exposes `send_input_request` as a dynamic tool for ordinary customer
+text-chat turns. It sends immediately; it does not create a draft. The bridge uses the current inbound capability data to require
+`input_request` support and rejects LINE and discovery routes.
+The bridge binds the form to the current customer conversation.
+The model never supplies destination or authorization.
+The backend still checks business delegation and current reply authority.
+
+Example tool arguments:
+
+```json
+{"question":"請補充訂位需求","fields":[{"key":"party_size","type":"number","label":"用餐人數","required":true,"min_value":1},{"key":"seating","type":"single_choice","label":"座位偏好","options":[{"value":"inside","label":"室內"},{"value":"outside","label":"戶外"}]}]}
+```
+
+The backend accepts 1–4 fields of type `text`, `number`, `single_choice`, or
+`images`. Questions allow 200 characters; labels allow 60; single-choice fields
+have 2–8 options. Image answers allow 1–3 images per field and at most 6 total.
+Detailed constraints, answer validation, and form state remain backend-owned.
+Creating a form supersedes the previous pending form in that conversation.
+The runtime allows one successful form send per turn. Duplicate calls with the
+same call ID reuse the result; HTTP retries retain the same message ID.
+
+The stdio send extension uses the existing `messages/send` method:
+
+```json
+{"jsonrpc":"2.0","id":30,"method":"messages/send","params":{"route":"<customer route>","clientMessageId":"<stable operation ID>","format":"plain","inputRequest":{"question":"How many guests?","fields":[{"key":"guests","type":"number","label":"Guests"}]}}}
+```
+
+`inputRequest` selects `message_type=input_request` on the existing backend
+send endpoint. Its question becomes the message text. A separate text value
+must match the question, and attached media or markdown
+are rejected. Backend field-validation details are returned through RPC errors.
+
+After a successful send, a public Codex turn may finish without an additional
+text reply; the bridge records completion without sending an empty message.
+The runtime does not poll for submissions or keep a turn waiting for the customer.
+
+A submission arrives through the existing WebSocket message flow as a text
+message with `metadata.input_response` (`version`, `request_message_id`, and
+`answers`), plus any images. Both single and batch turns receive the structured
+answers and readable summary. Materialized images retain their backend `id`,
+which is passed with the local path so Codex can associate images with answer
+fields. Ordinary text is not inferred to be a form submission; malformed or
+unsupported submission metadata stops that turn with a diagnostic.
+
+The dynamic-tool schema version is now 4. Following the existing state migration
+mechanism, the first load of this runtime starts fresh Codex threads for older
+tool schemas so the form tool is available. Completed-message IDs and pending
+public replies remain intact; existing chat history in Agenrena is unchanged.

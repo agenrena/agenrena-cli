@@ -592,7 +592,7 @@ func inboundMediaFromPayload(payload map[string]any, messageType string) []rawIn
 				continue
 			}
 			result = append(result, rawInboundMedia{
-				Kind: "image", URL: valueString(imageValue["url"]), MIMEType: valueString(imageValue["mime_type"]),
+				ID: valueString(imageValue["id"]), Kind: "image", URL: valueString(imageValue["url"]), MIMEType: valueString(imageValue["mime_type"]),
 				Width: intValue(imageValue["width"]), Height: intValue(imageValue["height"]),
 			})
 		}

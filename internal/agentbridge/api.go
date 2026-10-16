@@ -32,6 +32,7 @@ type APIClient struct {
 }
 
 type APIError struct {
+	Fields     any
 	Status     int
 	Code       string
 	Message    string
@@ -63,6 +64,9 @@ func (client *APIClient) SendMessage(ctx context.Context, params SendParams) (Se
 	route, err := DecodeRoute(params.Route)
 	if err != nil {
 		return SendResult{}, err
+	}
+	if params.InputRequest != nil {
+		return client.sendInputRequest(ctx, route, params)
 	}
 	if IsDiscoveryInquiryRoute(route) && len(params.Media) > 0 {
 		return SendResult{}, bridgeError("MESSAGE_INVALID", "Discovery inquiry replies support text only", false)
@@ -432,9 +436,13 @@ func decodeAgentAPIError(response *http.Response, raw []byte) *APIError {
 	}
 	var value map[string]any
 	if json.Unmarshal(raw, &value) == nil {
+		result.Fields = value["fields"]
 		result.Code = firstNonEmpty(valueString(value["code"]), result.Code)
 		result.Message = firstNonEmpty(valueString(value["detail"]), valueString(value["message"]), result.Message)
 		if nested, ok := value["error"].(map[string]any); ok {
+			if fields, exists := nested["fields"]; exists {
+				result.Fields = fields
+			}
 			result.Code = firstNonEmpty(valueString(nested["code"]), result.Code)
 			result.Message = firstNonEmpty(valueString(nested["message"]), result.Message)
 		}
@@ -457,11 +465,12 @@ func apiRPCError(err error, idempotent bool) error {
 		return bridgeError("DELIVERY_UNKNOWN", "message delivery outcome is unknown", false)
 	}
 	code := "API_ERROR"
-	if strings.HasPrefix(apiErr.Code, "DISCOVERY_INQUIRY_") {
+	if strings.HasPrefix(apiErr.Code, "DISCOVERY_INQUIRY_") ||
+		strings.HasPrefix(apiErr.Code, "INPUT_REQUEST_") || apiErr.Code == "CHANNEL_MESSAGE_TYPE_UNSUPPORTED" {
 		code = apiErr.Code
 	}
 	recoverable := apiErr.Retryable()
-	if apiErr.Status == 401 || apiErr.Status == 403 {
+	if (apiErr.Status == 401 || apiErr.Status == 403) && code == "API_ERROR" {
 		code, recoverable = "AUTH_INVALID", false
 	} else if apiErr.Status == 429 {
 		code = "RATE_LIMITED"
@@ -470,7 +479,7 @@ func apiRPCError(err error, idempotent bool) error {
 	}
 	return &RPCError{
 		Code: code, Message: apiErr.Message, Recoverable: recoverable,
-		RetryAfterMS: apiErr.RetryAfter.Milliseconds(), Cause: apiErr,
+		RetryAfterMS: apiErr.RetryAfter.Milliseconds(), Fields: apiErr.Fields, Cause: apiErr,
 	}
 }
 

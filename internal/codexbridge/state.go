@@ -15,6 +15,7 @@ import (
 )
 
 type Media struct {
+	ID   string `json:"id,omitempty"`
 	Kind string `json:"kind,omitempty"`
 	Path string `json:"path,omitempty"`
 	URL  string `json:"url,omitempty"`
