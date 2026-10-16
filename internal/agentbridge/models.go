@@ -81,15 +81,22 @@ type ContextItem struct {
 }
 
 type IncomingMessage struct {
-	ID          string              `json:"id"`
-	Route       string              `json:"route"`
-	MessageType string              `json:"messageType"`
-	Sender      Sender              `json:"sender"`
-	Text        string              `json:"text"`
-	Media       []MaterializedMedia `json:"media"`
-	ReplyTo     any                 `json:"replyTo"`
-	Context     []ContextItem       `json:"context"`
-	CreatedAt   string              `json:"createdAt,omitempty"`
+	ID                  string              `json:"id"`
+	Route               string              `json:"route"`
+	MessageType         string              `json:"messageType"`
+	Sender              *Sender             `json:"sender,omitempty"`
+	Text                string              `json:"text"`
+	Media               []MaterializedMedia `json:"media"`
+	ReplyTo             any                 `json:"replyTo"`
+	Context             []ContextItem       `json:"context"`
+	CreatedAt           string              `json:"createdAt,omitempty"`
+	Messages            []IncomingMessage   `json:"messages,omitempty"`
+	ReplyToPreview      any                 `json:"replyToPreview,omitempty"`
+	Metadata            map[string]any      `json:"metadata,omitempty"`
+	ContextType         string              `json:"contextType,omitempty"`
+	DelegationID        string              `json:"delegationId,omitempty"`
+	DelegationBootstrap map[string]any      `json:"delegationBootstrap,omitempty"`
+	Capabilities        map[string]any      `json:"capabilities,omitempty"`
 }
 
 type CallRTC struct {

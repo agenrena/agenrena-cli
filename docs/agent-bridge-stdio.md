@@ -119,7 +119,7 @@ agent command behavior.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.13.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker"],"handoff":true,"calls":true,"turnUpdates":true}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.13.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker","batch"],"handoff":true,"calls":true,"turnUpdates":true}}}
 ```
 
 An agent-metadata registration failure may be returned as a warning when the
@@ -305,7 +305,7 @@ process exit:
 
 ### `messages/received`
 
-Delivers one normalized Agenrena message.
+Delivers one normalized Agenrena message or one ordered message batch.
 
 ```json
 {"jsonrpc":"2.0","method":"messages/received","params":{"id":"msg_123","route":"v1.eyJjaGF0X2lkIjoiY2hhdF80NTYiLCJjb252ZXJzYXRpb25faWQiOiJjb252XzQ1NiIsInNvdXJjZSI6ImFnZW5yZW5hIiwidiI6MX0","messageType":"image","sender":{"id":"user_123","name":"Kai"},"text":"Please inspect this image","media":[{"kind":"image","path":"/absolute/bridge/media/msg_123/1.jpg","mimeType":"image/jpeg","sizeBytes":204800,"width":1200,"height":800}],"replyTo":null,"context":[],"createdAt":"2026-08-03T10:30:00Z"}}
@@ -317,14 +317,43 @@ Fields:
 | --- | --- | --- |
 | `id` | yes | Stable inbound message ID used for deduplication. |
 | `route` | yes | Opaque, persistent reply route. |
-| `messageType` | yes | `text`, `image`, or `sticker`. |
-| `sender.id` | yes | Stable Agenrena sender identity. |
+| `messageType` | yes | `text`, `image`, `sticker`, or `batch`. |
+| `sender.id` | single message / batch item | Stable Agenrena sender identity; absent on a batch envelope. |
 | `sender.name` | no | Display name when available. |
 | `text` | no | Text or caption; empty when the event is media-only. |
 | `media` | no | Materialized media; default is empty. |
 | `replyTo` | no | Message ID referenced by the inbound message. |
 | `context` | no | Normalized referenced conversation items. |
 | `createdAt` | no | RFC 3339 timestamp supplied by Agenrena. |
+
+### Ordered batches
+
+When `messageType` is `batch`, `messages` contains normalized items in backend
+order. The bridge emits **one** `messages/received` notification for the entire
+batch. Each item has its own ID, sender, text, materialized media, references,
+context and timestamp, and inherits the envelope's route. Do not start one
+runtime turn per item or flatten the batch into an ordinary text message.
+
+```json
+{"id":"m2","route":"<opaque route>","messageType":"batch","messages":[{"id":"m1","route":"<opaque route>","messageType":"text","sender":{"id":"user_123"},"text":"Book a table"},{"id":"m2","route":"<opaque route>","messageType":"text","sender":{"id":"user_123"},"text":"For two tomorrow"}],"contextType":"delegation_bootstrap","delegationId":"delegation_uuid","delegationBootstrap":{"prompt":"...","conversation_members":"...","recent_conversation":"..."},"capabilities":{"supported_reply_types":["text","image","card"]}}
+```
+
+- The envelope has no sender. Never infer one sender's authority for all items.
+- The envelope ID equals the last item ID. Use it for deduplication, turn
+  progress and the reply anchor; preserve the other IDs for attribution.
+- `delegationBootstrap`, when supplied, precedes the batch's current messages
+  in model input. `capabilities` describes backend reply-type support, not a
+  guarantee that the runtime implements each type.
+- `replyToPreview` and `metadata`, when supplied, remain attached to their item.
+- Empty batches, duplicate IDs, nested/unsupported message types, conflicting
+  routes, or an invalid reply anchor produce a diagnostic and are not emitted
+  as partial messages. This does not add a durable inbox or replay mechanism.
+
+The Codex runtime reads the batch once, placing each item's text and attachments
+in order. Its application context includes per-message `auth_sender_id` and
+`inbound_message_id`; the top-level sender is null for mixed-sender batches.
+The batch envelope is not interpreted as a `/new` or `/status` command.
+Singleton deliveries keep the existing format.
 
 Context items have the following extensible shape:
 

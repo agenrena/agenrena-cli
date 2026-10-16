@@ -163,7 +163,7 @@ func (service *Service) Initialize(ctx context.Context, params InitializeParams,
 		State:           "connected",
 		Capabilities: ServerCapabilities{
 			InboundMedia: true, OutboundMedia: true,
-			MessageTypes: []string{"text", "image", "sticker"},
+			MessageTypes: []string{"text", "image", "sticker", "batch"},
 			Handoff:      true, Calls: true, TurnUpdates: true,
 		},
 		Warnings: warnings,
@@ -531,6 +531,9 @@ func normalizeCallEvent(event map[string]any) (*Event, bool, error) {
 
 func (service *Service) normalizeIncoming(ctx context.Context, payload map[string]any) (*IncomingMessage, error) {
 	messageType := valueString(payload["message_type"])
+	if messageType == "batch" {
+		return service.normalizeBatch(ctx, payload)
+	}
 	if messageType != "text" && messageType != "image" && messageType != "sticker" {
 		return nil, nil
 	}
@@ -570,12 +573,14 @@ func (service *Service) normalizeIncoming(ctx context.Context, payload map[strin
 	if value := valueString(payload["reply_to_message_id"]); value != "" {
 		replyTo = value
 	}
-	return &IncomingMessage{
+	message := &IncomingMessage{
 		ID: messageID, Route: routeValue, MessageType: messageType,
-		Sender: Sender{ID: senderID, Name: senderName}, Text: text,
+		Sender: &Sender{ID: senderID, Name: senderName}, Text: text,
 		Media: media, ReplyTo: replyTo, Context: contextItems,
 		CreatedAt: valueString(payload["created_at"]),
-	}, nil
+	}
+	copyInboundDetails(message, payload)
+	return message, nil
 }
 
 func inboundMediaFromPayload(payload map[string]any, messageType string) []rawInboundMedia {
