@@ -323,6 +323,9 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 					resultText += " Request message ID: " + sent.MessageID
 				}
 				_ = client.Respond(request.ID, map[string]any{"contentItems": []any{map[string]any{"type": "inputText", "text": resultText}}, "success": sendErr == nil})
+				if replyAuthorityLost(sendErr) {
+					return turnResult{}, sendErr
+				}
 				continue
 			}
 			if request.Method == "item/tool/call" && stringValue(params["tool"]) == handoffToolName {
@@ -979,7 +982,10 @@ func (service *bridgeService) runRuntimeCommand(message InboundMessage) (turnRes
 func (service *bridgeService) deliver(ctx context.Context, reply Reply, emitter *turnProgressEmitter) error {
 	result, err := service.bridge.SendReply(ctx, reply)
 	if err != nil {
-		discarded, discardErr := service.discardTerminalDiscoveryReply(reply, err)
+		discarded, discardErr := service.discardRevokedReply(reply, err)
+		if !discarded && discardErr == nil {
+			discarded, discardErr = service.discardTerminalDiscoveryReply(reply, err)
+		}
 		if discardErr != nil {
 			return discardErr
 		}
