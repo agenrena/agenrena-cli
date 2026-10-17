@@ -55,7 +55,7 @@ agenrena doctor
 `doctor` checks CLI health, authentication, API reachability, and update
 availability. If an update is available, rerun the installer.
 
-All stdout output is JSON. For ordinary one-shot commands, treat `"ok": false`
+Ordinary command stdout is JSON; `agenrena codex bridge guidance` prints readable Markdown. For ordinary one-shot commands, treat `"ok": false`
 as failure and read `error.code`, `error.message`, and `error.recoverable`.
 
 ## Agent Bridge
@@ -454,3 +454,34 @@ Environment overrides:
   login can import it into the local credentials file
 - `AGENRENA_API_BASE`: override the API base URL
 - `AGENRENA_CONFIG_DIR`: override the config directory
+
+## Bridge guidance refresh
+
+Read the current chat instructions without signing in or starting the bridge:
+
+```sh
+agenrena codex bridge guidance
+```
+
+Before each normal incoming message, the Codex bridge compares content hashes of
+its built-in guidance, Agenrena skill Markdown (including references), and the
+workspace/global `AGENTS.md`. Changed or previously untracked guidance produces
+an internal reread reminder in the same session. No feature comparison or thread
+reset is performed. Completed turns persist notification hashes in
+`guidanceByThread` inside the existing bridge `state.json`; failed turns retry.
+This tracks notification, not proof that a model read the guidance.
+
+Skill lookup prefers the workspace `.agents/skills/agenrena-skill`, then the
+user's `~/.agents/skills/agenrena-skill`, then `$CODEX_HOME/skills/agenrena-skill`
+(default CODEX_HOME is `~/.codex`). `AGENRENA_CODEX_BRIDGE_SKILL_DIR` can explicitly
+select another skill directory. Symlinks to guidance files and the skill root
+are supported; directory symlinks inside the skill are not traversed. Global
+instructions are read from `$CODEX_HOME/AGENTS.md`, and workspace instructions
+from `<workspace>/AGENTS.md`. No Connect-specific environment or build patch is
+required. Guidance refresh does not alter registered tools or permissions.
+
+The optional real-Codex regression test uses a local Responses fixture only:
+
+```sh
+BRIDGE_TEST_CODEX=/absolute/path/to/codex go test -race ./internal/codexbridge -run TestBridgeGuidance
+```

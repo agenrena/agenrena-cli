@@ -77,6 +77,7 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  agenrena agent bridge --stdio")
 	fmt.Fprintln(out, "  agenrena codex bridge mcp")
+	fmt.Fprintln(out, "  agenrena codex bridge guidance")
 	fmt.Fprintln(out, "  agenrena auth login")
 	fmt.Fprintln(out, "  agenrena auth status")
 	fmt.Fprintln(out, "  agenrena auth logout")

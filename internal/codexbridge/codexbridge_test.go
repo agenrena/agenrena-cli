@@ -26,6 +26,10 @@ const testPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
 func testEnvironment(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
+	t.Setenv("AGENRENA_CODEX_BRIDGE_SKILL_DIR", "")
 	t.Setenv("AGENRENA_CODEX_BRIDGE_CONFIG_FILE", filepath.Join(root, "config.json"))
 	t.Setenv("AGENRENA_CODEX_BRIDGE_STATE_DIR", filepath.Join(root, "state"))
 	return root

@@ -33,11 +33,12 @@ type Reply struct {
 }
 
 type stateData struct {
-	Version             int               `json:"version"`
-	ThreadToolsVersion  int               `json:"threadToolsVersion"`
-	Sessions            map[string]string `json:"sessions"`
-	PendingReplies      map[string]Reply  `json:"pendingReplies"`
-	CompletedMessageIDs []string          `json:"completedMessageIDs"`
+	Version             int                          `json:"version"`
+	ThreadToolsVersion  int                          `json:"threadToolsVersion"`
+	Sessions            map[string]string            `json:"sessions"`
+	PendingReplies      map[string]Reply             `json:"pendingReplies"`
+	CompletedMessageIDs []string                     `json:"completedMessageIDs"`
+	GuidanceByThread    map[string]map[string]string `json:"guidanceByThread,omitempty"`
 }
 
 type StateStore struct {

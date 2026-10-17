@@ -13,6 +13,16 @@ func runCodex(ctx context.Context, args []string) error {
 		return usageError("usage: agenrena codex bridge mcp")
 	}
 	switch args[1] {
+	case "guidance":
+		if len(args) != 2 {
+			return usageError("usage: agenrena codex bridge guidance")
+		}
+		guide, err := codexbridge.Guidance()
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(os.Stdout, guide)
+		return err
 	case "mcp":
 		if len(args) != 2 {
 			return usageError("usage: agenrena codex bridge mcp")

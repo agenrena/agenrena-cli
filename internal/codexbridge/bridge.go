@@ -162,7 +162,8 @@ type turnResult struct {
 }
 
 type codexRunner struct {
-	settings Settings
+	settings      Settings
+	guidanceStore *StateStore
 }
 
 type turnProgress struct {
@@ -245,6 +246,15 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	if runner.settings.Model != "" {
 		turnParams["model"] = runner.settings.Model
 	}
+	guidance, err := runner.guidanceUpdate(threadResponse.Thread.ID)
+	if err != nil {
+		return turnResult{}, err
+	}
+	if guidance != nil {
+		turnParams["additionalContext"].(map[string]any)["agenrena_guidance_update"] = map[string]any{
+			"kind": "application", "value": guidance.notice,
+		}
+	}
 	var turnResponse struct {
 		Turn struct {
 			ID string `json:"id"`
@@ -262,6 +272,9 @@ func (runner codexRunner) RunTurn(ctx context.Context, message InboundMessage, t
 	result, err := collectTurn(ctx, client, turnResponse.Turn.ID, runner.settings.TurnTimeout, handoff, runner.attachmentResolver(message), progress, options...)
 	result.ThreadID = threadResponse.Thread.ID
 	result.TurnID = turnResponse.Turn.ID
+	if err == nil && guidance != nil {
+		err = runner.guidanceStore.rememberGuidance(result.ThreadID, guidance.hashes)
+	}
 	return result, err
 }
 
@@ -804,6 +817,7 @@ func (emitter *turnProgressEmitter) Emit(ctx context.Context, progress turnProgr
 }
 
 func newBridgeService(bridge *agentBridgeClient, codex codexRunner, store *StateStore, calls *callManager, status func(map[string]any)) *bridgeService {
+	codex.guidanceStore = store
 	return &bridgeService{bridge: bridge, codex: codex, store: store, calls: calls, status: status, inflight: make(map[string]bool), routeQueues: make(map[string]chan InboundMessage)}
 }
 
