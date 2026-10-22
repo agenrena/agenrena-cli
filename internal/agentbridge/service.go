@@ -163,7 +163,7 @@ func (service *Service) Initialize(ctx context.Context, params InitializeParams,
 		State:           "connected",
 		Capabilities: ServerCapabilities{
 			InboundMedia: true, OutboundMedia: true,
-			MessageTypes: []string{"text", "image", "sticker", "batch"},
+			MessageTypes: []string{"text", "image", "sticker", "showcase", "batch"},
 			Handoff:      true, Calls: true, TurnUpdates: true,
 		},
 		Warnings: warnings,
@@ -534,7 +534,7 @@ func (service *Service) normalizeIncoming(ctx context.Context, payload map[strin
 	if messageType == "batch" {
 		return service.normalizeBatch(ctx, payload)
 	}
-	if messageType != "text" && messageType != "image" && messageType != "sticker" {
+	if messageType != "text" && messageType != "image" && messageType != "sticker" && messageType != "showcase" {
 		return nil, nil
 	}
 	messageID := valueString(payload["id"])

@@ -180,6 +180,7 @@ type SendMedia struct {
 }
 
 type SendParams struct {
+	Showcase        map[string]any `json:"showcase,omitempty"`
 	InputRequest    map[string]any `json:"inputRequest,omitempty"`
 	Route           string         `json:"route"`
 	ReplyTo         string         `json:"replyTo,omitempty"`

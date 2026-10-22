@@ -169,7 +169,7 @@ func TestInputRequestSenderDeduplicatesCallsAndPreventsReplacement(t *testing.T)
 	defer process.Close(time.Second)
 	message := publicFormMessage(t)
 	message.Capabilities["supported_reply_types"] = []any{"input_request"}
-	service := &bridgeService{bridge: &agentBridgeClient{process: process}}
+	service := &bridgeService{bridge: &agentBridgeClient{process: process}, store: NewStateStore(filepath.Join(t.TempDir(), "state.json"))}
 	send := service.inputRequestSender(message)
 	first, err := send(context.Background(), "same-call", runtimeInputRequest())
 	if err != nil {

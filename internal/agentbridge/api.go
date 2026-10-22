@@ -65,6 +65,9 @@ func (client *APIClient) SendMessage(ctx context.Context, params SendParams) (Se
 	if err != nil {
 		return SendResult{}, err
 	}
+	if params.Showcase != nil {
+		return client.sendShowcase(ctx, route, params)
+	}
 	if params.InputRequest != nil {
 		return client.sendInputRequest(ctx, route, params)
 	}
@@ -467,7 +470,7 @@ func apiRPCError(err error, idempotent bool) error {
 	code := "API_ERROR"
 	if strings.HasPrefix(apiErr.Code, "DISCOVERY_INQUIRY_") ||
 		strings.HasPrefix(apiErr.Code, "BUSINESS_HANDOFF_") ||
-		strings.HasPrefix(apiErr.Code, "INPUT_REQUEST_") || apiErr.Code == "CHANNEL_MESSAGE_TYPE_UNSUPPORTED" ||
+		strings.HasPrefix(apiErr.Code, "INPUT_REQUEST_") || strings.HasPrefix(apiErr.Code, "SHOWCASE_") || apiErr.Code == "CHANNEL_MESSAGE_TYPE_UNSUPPORTED" ||
 		apiErr.Code == "CONVERSATION_AGENT_REPLY_DISABLED" || apiErr.Code == "NOT_CONVERSATION_MEMBER" {
 		code = apiErr.Code
 	}

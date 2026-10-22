@@ -32,7 +32,7 @@ func batchTurnInputs(message InboundMessage) ([]any, error) {
 		}
 		seen[item.ID] = true
 		switch item.MessageType {
-		case "text", "image", "sticker":
+		case "text", "image", "sticker", "showcase":
 		default:
 			return nil, fmt.Errorf("batch message %d has an unsupported message type", index+1)
 		}

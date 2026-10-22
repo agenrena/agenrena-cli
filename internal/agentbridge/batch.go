@@ -40,7 +40,7 @@ func (service *Service) normalizeBatch(ctx context.Context, payload map[string]a
 		}
 		seen[itemID] = true
 		switch valueString(item["message_type"]) {
-		case "text", "image", "sticker":
+		case "text", "image", "sticker", "showcase":
 		default:
 			return nil, fmt.Errorf("batch message %d has an unsupported message_type", index+1)
 		}

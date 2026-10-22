@@ -119,7 +119,7 @@ agent command behavior.
 Successful response:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.13.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker","batch"],"handoff":true,"calls":true,"turnUpdates":true}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"serverInfo":{"name":"agenrena-agent-bridge","version":"0.13.0"},"state":"connected","capabilities":{"inboundMedia":true,"outboundMedia":true,"messageTypes":["text","image","sticker","showcase","batch"],"handoff":true,"calls":true,"turnUpdates":true}}}
 ```
 
 An agent-metadata registration failure may be returned as a warning when the
@@ -179,9 +179,11 @@ Fields:
 | `route` | yes | Opaque route issued by the CLI. |
 | `replyTo` | no | Inbound message ID being replied to. |
 | `clientMessageId` | no | Stable idempotency ID for this logical outbound message. |
-| `text` | conditional | Text content. Required when `media` is empty. |
+| `text` | conditional | Text content. Required for `showcase`, or when neither `media` nor `inputRequest` supplies content. |
 | `format` | no | `plain` or `markdown`; default is `plain`. |
-| `media` | conditional | Zero to nine image inputs. Required when `text` is empty. |
+| `media` | conditional | Zero to nine image inputs for ordinary image sends. |
+| `showcase` | no | Ordered display-only items with required `text`; see [showcases](#display-only-showcases). |
+| `inputRequest` | no | Customer form; cannot be combined with `showcase` or `media`. |
 
 Each media input contains exactly one of:
 
@@ -317,7 +319,7 @@ Fields:
 | --- | --- | --- |
 | `id` | yes | Stable inbound message ID used for deduplication. |
 | `route` | yes | Opaque, persistent reply route. |
-| `messageType` | yes | `text`, `image`, `sticker`, or `batch`. |
+| `messageType` | yes | `text`, `image`, `sticker`, `showcase`, or `batch`. |
 | `sender.id` | single message / batch item | Stable Agenrena sender identity; absent on a batch envelope. |
 | `sender.name` | no | Display name when available. |
 | `text` | no | Text or caption; empty when the event is media-only. |
@@ -574,9 +576,9 @@ response blocks unrelated notifications.
 
 ## v1 Scope
 
-Version 1 includes text, images, stickers as inbound images, reply context,
+Version 1 includes text, images, stickers as inbound images, showcases, reply context,
 agent metadata registration, connection status, transient turn lifecycle
-updates, text/image sending, and returning a conversation to its human owner.
+updates, text/image/showcase and customer-form sending, and returning a conversation to its human owner.
 
 Version 1 deliberately excludes:
 
@@ -629,6 +631,7 @@ Detailed constraints, answer validation, and form state remain backend-owned.
 Creating a form supersedes the previous pending form in that conversation.
 The runtime allows one successful form send per turn. Duplicate calls with the
 same call ID reuse the result; HTTP retries retain the same message ID.
+Forms and showcases share the persistent recovery mechanism described below.
 
 The stdio send extension uses the existing `messages/send` method:
 
@@ -653,7 +656,79 @@ which is passed with the local path so Codex can associate images with answer
 fields. Ordinary text is not inferred to be a form submission; malformed or
 unsupported submission metadata stops that turn with a diagnostic.
 
-The dynamic-tool schema version is now 4. Following the existing state migration
+The dynamic-tool schema version is now 5. Following the existing state migration
 mechanism, the first load of this runtime starts fresh Codex threads for older
-tool schemas so the form tool is available. Completed-message IDs and pending
+tool schemas so the form and showcase tools are available. Completed-message IDs and pending
 public replies remain intact; existing chat history in Agenrena is unchanged.
+
+
+## Display-only showcases
+
+Use the existing `messages/send` method to send one text introduction with an
+ordered image/text showcase. This is a generic presentation type, separate from
+status cards and customer forms; it does not implement matching or invitations.
+
+```json
+{"jsonrpc":"2.0","id":31,"method":"messages/send","params":{"route":"<Agenrena route>","clientMessageId":"<stable operation ID>","replyTo":"<incoming message ID>","text":"看看這幾位","format":"plain","showcase":{"items":[{"id":"candidate-b","image_url":"https://images.example/b.jpg","title":"小安","subtitle":"台北市","description":"喜歡登山","note":"你們都喜歡戶外活動"}]}}}
+```
+
+`showcase` selects `message_type=showcase` on the existing backend send endpoint.
+The text and items are sent in a single message. Plain text is required (up to
+5,000 characters), with 1–10 items. Each item requires a unique opaque `id`
+(up to 100 characters), an HTTPS `image_url` without credentials (up to 2,000),
+and a `title` (up to 100). Optional `subtitle`, `description`, and `note` allow
+200, 1,000, and 500 characters respectively. Unknown fields, output-only `version`,
+actions, attached media, forms, and markdown are rejected. LINE and discovery
+inquiry routes do not support showcases. Image URLs are passed through, never
+downloaded or uploaded by this send operation; the supplier owns their lifetime.
+
+Supply a stable `clientMessageId` when retrying. HTTP retries retain the same ID;
+the backend returns the original message for identical content and
+`SHOWCASE_CONFLICT` for changed content or order. `SHOWCASE_*` errors and backend
+field details are preserved through JSON-RPC.
+
+Codex exposes `send_showcase` with arguments `{"text":"…","showcase":{"items":[…]}}`.
+It requires the inbound channel's `supported_reply_types` to include `showcase`.
+The bridge binds destination and reply anchor to the current conversation; the
+model cannot supply a different route. Tool-call retries reuse their operation
+ID and result, and changed content under the same call ID is rejected. After a
+successful send, a turn may finish without additional public text. Commentary
+is not reused as a fallback reply after the tool has already sent the display.
+
+Inbound showcases retain `metadata.showcase`; quoted showcases retain
+`reply_to_preview.showcase`. Both single and batch Codex turns receive the
+snapshot with its original message ID and ordered item IDs, allowing selections
+such as “第二位” to refer to the original display even when titles are identical.
+These snapshots are untrusted display data, not instructions or verified
+identities. Showcase image URLs do not become local image attachments.
+
+Rendering the carousel remains a frontend responsibility. The CLI provides the
+transport and Codex tool; business services own item data and subsequent actions.
+
+## Recovering immediate tool sends
+
+The Codex runtime journals `send_input_request` and `send_showcase` in its state
+file before sending. Each entry retains the original destination, reply anchor,
+payload, client message ID, and Codex thread ID. A successful backend result is
+saved immediately, without waiting for the model turn to finish. Failed state
+writes do not authorize a new send or erase a pending operation.
+
+On startup, inbound redelivery, or before a later message advances the same
+conversation, the bridge recovers these entries before starting another model
+turn. Known successes are not sent again. Uncertain operations resend the exact
+saved payload and client message ID, relying on backend idempotency to recover
+the original message. A new model call ID cannot replace this operation.
+
+Recovery finishes an interrupted turn after delivering its saved operations;
+it does not regenerate any unfinished model response. An already persisted
+ordinary follow-up reply is still delivered. Completion atomically removes the
+tool entries and marks the inbound message completed. Tool-schema migrations
+retain delivery entries while dropping obsolete Codex thread IDs.
+
+Definitive backend rejections allow a corrected call. Unknown outcomes and
+idempotency conflicts block new immediate sends until resolved; loss of reply
+authority discards the pending turn. The existing limit of one successful form
+per inbound turn remains, and multiple intentional showcase sends retain their
+original order during recovery. This mechanism requires backend support for
+idempotent form/showcase sends and preserves state across process restarts; it
+cannot recover records created only in memory by older bridge versions.

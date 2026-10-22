@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ type Reply struct {
 }
 
 type stateData struct {
+	ToolDeliveries      map[string][]toolDelivery    `json:"toolDeliveries,omitempty"`
 	Version             int                          `json:"version"`
 	ThreadToolsVersion  int                          `json:"threadToolsVersion"`
 	Sessions            map[string]string            `json:"sessions"`
@@ -55,6 +57,7 @@ func freshState() stateData {
 	return stateData{
 		Version: configSchemaVersion, ThreadToolsVersion: threadToolsSchemaVersion,
 		Sessions: make(map[string]string), PendingReplies: make(map[string]Reply),
+		ToolDeliveries:      make(map[string][]toolDelivery),
 		CompletedMessageIDs: []string{},
 	}
 }
@@ -72,6 +75,15 @@ func (store *StateStore) Load() error {
 	}
 	if loaded.Sessions == nil || loaded.ThreadToolsVersion != threadToolsSchemaVersion {
 		loaded.Sessions = make(map[string]string)
+		for id, deliveries := range loaded.ToolDeliveries {
+			for i := range deliveries {
+				deliveries[i].ThreadID = ""
+			}
+			loaded.ToolDeliveries[id] = deliveries
+		}
+	}
+	if loaded.ToolDeliveries == nil {
+		loaded.ToolDeliveries = make(map[string][]toolDelivery)
 	}
 	if loaded.PendingReplies == nil {
 		loaded.PendingReplies = make(map[string]Reply)
@@ -129,34 +141,42 @@ func (store *StateStore) Record(reply Reply) (Reply, error) {
 		return Reply{}, err
 	}
 	reply.Media = staged
-	store.data.Sessions[reply.Route] = reply.ThreadID
-	store.data.PendingReplies[reply.InboundMessageID] = reply
-	if err := atomicWriteJSON(store.path, store.data); err != nil {
+	next := store.data
+	next.Sessions = maps.Clone(store.data.Sessions)
+	next.PendingReplies = maps.Clone(store.data.PendingReplies)
+	next.Sessions[reply.Route] = reply.ThreadID
+	next.PendingReplies[reply.InboundMessageID] = reply
+	if err := atomicWriteJSON(store.path, next); err != nil {
 		return Reply{}, err
 	}
+	store.data = next
 	return reply, nil
 }
 
 func (store *StateStore) CompleteWithoutReply(inboundMessageID, route, threadID string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	next := store.completedState(inboundMessageID)
 	if threadID != "" {
-		store.data.Sessions[route] = threadID
+		next.Sessions = maps.Clone(store.data.Sessions)
+		next.Sessions[route] = threadID
 	}
-	delete(store.data.PendingReplies, inboundMessageID)
-	store.addCompleted(inboundMessageID)
-	return atomicWriteJSON(store.path, store.data)
+	if err := atomicWriteJSON(store.path, next); err != nil {
+		return err
+	}
+	store.data = next
+	return nil
 }
 
 func (store *StateStore) MarkSent(id string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	reply := store.data.PendingReplies[id]
-	delete(store.data.PendingReplies, id)
-	store.addCompleted(id)
-	if err := atomicWriteJSON(store.path, store.data); err != nil {
+	next := store.completedState(id)
+	if err := atomicWriteJSON(store.path, next); err != nil {
 		return err
 	}
+	store.data = next
 	mediaRoot, _ := filepath.Abs(filepath.Join(filepath.Dir(store.path), "outbound"))
 	for _, media := range reply.Media {
 		if media.Path == "" {
@@ -170,7 +190,12 @@ func (store *StateStore) MarkSent(id string) error {
 	return nil
 }
 
-func (store *StateStore) addCompleted(id string) {
+func (store *StateStore) completedState(id string) stateData {
+	next := store.data
+	next.PendingReplies = maps.Clone(store.data.PendingReplies)
+	next.ToolDeliveries = maps.Clone(store.data.ToolDeliveries)
+	delete(next.PendingReplies, id)
+	delete(next.ToolDeliveries, id)
 	filtered := make([]string, 0, len(store.data.CompletedMessageIDs)+1)
 	for _, value := range store.data.CompletedMessageIDs {
 		if value != id {
@@ -181,7 +206,8 @@ func (store *StateStore) addCompleted(id string) {
 	if len(filtered) > maxCompletedIDs {
 		filtered = filtered[len(filtered)-maxCompletedIDs:]
 	}
-	store.data.CompletedMessageIDs = filtered
+	next.CompletedMessageIDs = filtered
+	return next
 }
 
 func (store *StateStore) stageMedia(media []Media, clientMessageID string) ([]Media, error) {

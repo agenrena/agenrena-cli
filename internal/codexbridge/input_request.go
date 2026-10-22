@@ -6,17 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/agenrena/agenrena-cli/internal/agentbridge"
 )
 
 const inputRequestToolName = "send_input_request"
 const inputRequestInstructions = "Use send_input_request to send an actual customer form, not JSON in a chat answer. It sends immediately, not as a draft. Only use it when channel capabilities include input_request. A conversation has at most one pending form; sending another replaces the previous pending form. Send at most one form per turn. After success, finish this turn; the customer's submission arrives as a new message. A public turn may finish without additional text after sending the form. Ordinary chat text is not a submitted form."
-
-type turnToolOptions struct {
-	sendInputRequest func(context.Context, string, map[string]any) (agentbridge.SendResult, error)
-}
 
 func inputRequestTool() map[string]any {
 	stringField := func(limit int) map[string]any {
@@ -70,41 +65,7 @@ func inputRequestParams(message InboundMessage, callID string, args map[string]a
 }
 
 func (service *bridgeService) inputRequestSender(message InboundMessage) func(context.Context, string, map[string]any) (agentbridge.SendResult, error) {
-	type outcome struct {
-		body   string
-		result agentbridge.SendResult
-		err    error
-	}
-	outcomes := make(map[string]outcome)
-	sent := false
-	uncertain := false
-	return func(ctx context.Context, callID string, args map[string]any) (agentbridge.SendResult, error) {
-		body, err := json.Marshal(args)
-		if err != nil {
-			return agentbridge.SendResult{}, err
-		}
-		if previous, ok := outcomes[callID]; ok {
-			if previous.body != string(body) {
-				return agentbridge.SendResult{}, errors.New("input request retry changed its content")
-			}
-			return previous.result, previous.err
-		}
-		if sent || uncertain {
-			return agentbridge.SendResult{}, errors.New("a form was already sent or its delivery is uncertain; do not replace it in this turn")
-		}
-		params, err := inputRequestParams(message, callID, args)
-		var result agentbridge.SendResult
-		if err == nil {
-			err = service.bridge.process.Request(ctx, "messages/send", params, 60*time.Second, &result)
-			if err != nil {
-				var rpc *agentbridge.RPCError
-				uncertain = !errors.As(err, &rpc) || rpc.Code == "DELIVERY_UNKNOWN" || rpc.Recoverable
-			}
-		}
-		outcomes[callID] = outcome{body: string(body), result: result, err: err}
-		sent = err == nil
-		return result, err
-	}
+	return service.toolSender(message, inputRequestToolName, inputRequestParams, nil)
 }
 
 // Only server-authored input_response metadata indicates a form submission.

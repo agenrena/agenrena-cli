@@ -71,9 +71,11 @@ Each plugin starts one child process and communicates with it using JSON-RPC
 2.0 over JSON Lines. Requests go to stdin, responses and inbound-message
 notifications come from stdout, and logs stay on stderr. The bridge loads the
 credential created by `agenrena auth login`, connects and reconnects the
-Agenrena WebSocket, normalizes text/image/sticker events, materializes inbound
+Agenrena WebSocket, normalizes text/image/sticker/showcase events, materializes inbound
 images as local files, sends text or images back through the REST API, and
 publishes transient Agent turn progress over the same authenticated WebSocket.
+Display-only showcases send a required text introduction and ordered items in
+one message through `messages/send`; Codex can use the `send_showcase` tool.
 Final durable replies still use REST. The bridge also hands a conversation back
 to its human owner when the agent should stop answering.
 
