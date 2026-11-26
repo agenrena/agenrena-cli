@@ -95,7 +95,7 @@ func TestFormOnlyTurnCompletesWithoutPublicFollowup(t *testing.T) {
 		}
 		return agentbridge.SendResult{MessageID: "form-1"}, nil
 	}})
-	if err != nil || calls != 1 || !result.InputRequestSent || result.InputRequestMessageID != "form-1" || result.Text != "" || len(result.Media) != 0 {
+	if err != nil || calls != 1 || result.LastToolMessageID != "form-1" || result.Text != "" || len(result.Media) != 0 {
 		t.Fatalf("result=%+v calls=%d err=%v", result, calls, err)
 	}
 }

@@ -407,3 +407,25 @@ func outboundImageTestClient(t *testing.T, send func(*http.Request) *http.Respon
 		}
 	})}
 }
+
+func TestExpiredBusinessServiceReplyDoesNotRetryAndPreservesCode(t *testing.T) {
+	calls := 0
+	client := &APIClient{BaseURL: "https://api.example", APIKey: "key", MaxAttempts: 4,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			calls++
+			return testJSONResponse(request, http.StatusConflict, map[string]any{"error": map[string]any{
+				"code": "BUSINESS_SERVICE_REPLY_WINDOW_EXPIRED", "message": "expired",
+			}}), nil
+		})}}
+	route, err := EncodeRoute(Route{ConversationID: "service-room"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.SendMessage(context.Background(), SendParams{
+		Route: route, ReplyTo: "question", Text: "answer", ClientMessageID: "answer-1",
+	})
+	rpc, ok := err.(*RPCError)
+	if calls != 1 || !ok || rpc.Code != "BUSINESS_SERVICE_REPLY_WINDOW_EXPIRED" || rpc.Recoverable {
+		t.Fatalf("calls=%d error=%+v", calls, err)
+	}
+}

@@ -363,6 +363,16 @@ Context items have the following extensible shape:
 {"label":"Referenced message","messageType":"text","text":"Earlier content","media":[],"metadata":{}}
 ```
 
+Business questions use the same context normalization for explicitly selected messages.
+The question remains in `text`; reference labels retain author and time, and context
+media is downloaded through the existing media store. Codex receives the local paths
+through its existing context handling; no inquiry-specific image pipeline is used.
+
+`BUSINESS_SERVICE_REPLY_WINDOW_EXPIRED` is preserved as a nonrecoverable error.
+The Codex bridge uses its existing reply-authority rejection handling to complete
+the pending answer without sending it, retaining the conversation thread. Restart
+recovery and duplicate inbound delivery must not resend that expired answer.
+
 Inbound media paths must be absolute, readable by the plugin process, and
 retained for at least 24 hours. The CLI expires old media opportunistically on
 startup and media handling rather than requiring an acknowledgement protocol
@@ -732,3 +742,5 @@ per inbound turn remains, and multiple intentional showcase sends retain their
 original order during recovery. This mechanism requires backend support for
 idempotent form/showcase sends and preserves state across process restarts; it
 cannot recover records created only in memory by older bridge versions.
+
+When a turn publishes several forms or showcases, its completion event references the last newly published message. Retrying an earlier tool call keeps that completion reference on the latest message.

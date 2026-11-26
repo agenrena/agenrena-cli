@@ -18,6 +18,48 @@ func runtimeShowcase() map[string]any {
 		map[string]any{"id": "candidate-a", "image_url": "https://images.example/a.jpg", "title": "小安"},
 	}}}
 }
+
+func TestToolCompletionUsesLastPublishedMessage(t *testing.T) {
+	for _, order := range [][]string{
+		{showcaseToolName, inputRequestToolName, showcaseToolName},
+		{inputRequestToolName, showcaseToolName, inputRequestToolName},
+	} {
+		t.Run(order[0], func(t *testing.T) {
+			client := &jsonLineProcess{
+				requests: make(chan rpcMessage, len(order)), notifications: make(chan rpcMessage, 1),
+			}
+			responses := 0
+			client.stdin = deliveryTestWriter(func(data []byte) (int, error) {
+				var response struct {
+					Result struct{ Success bool }
+				}
+				if err := json.Unmarshal(data, &response); err != nil || !response.Result.Success {
+					t.Fatalf("tool failed: %s, %v", data, err)
+				}
+				responses++
+				if responses == len(order) {
+					client.notifications <- rpcMessage{Method: "turn/completed", Params: json.RawMessage(`{"turn":{"id":"turn","status":"completed"}}`)}
+				}
+				return len(data), nil
+			})
+			for _, name := range order {
+				params, err := json.Marshal(map[string]any{"tool": name, "callId": name})
+				if err != nil {
+					t.Fatal(err)
+				}
+				client.requests <- rpcMessage{ID: json.RawMessage("1"), Method: "item/tool/call", Params: params}
+			}
+			send := func(_ context.Context, callID string, _ map[string]any) (agentbridge.SendResult, error) {
+				return agentbridge.SendResult{MessageID: callID}, nil
+			}
+			result, err := collectTurn(context.Background(), client, "turn", time.Second, nil, nil, nil,
+				turnToolOptions{sendInputRequest: send, sendShowcase: send})
+			if err != nil || result.LastToolMessageID != order[1] || result.Text != "" {
+				t.Fatalf("retry displaced the last published message: %+v %v", result, err)
+			}
+		})
+	}
+}
 func publicShowcaseMessage(t *testing.T) InboundMessage {
 	message := publicFormMessage(t)
 	message.Capabilities["supported_reply_types"] = []any{"text", "showcase"}
@@ -90,7 +132,7 @@ func TestShowcaseOnlyTurnCompletesWithoutPublicFollowup(t *testing.T) {
 		}
 		return agentbridge.SendResult{MessageID: "showcase-1"}, nil
 	}})
-	if err != nil || calls != 1 || !result.ShowcaseSent || result.ShowcaseMessageID != "showcase-1" || result.Text != "" || len(result.Media) != 0 {
+	if err != nil || calls != 1 || result.LastToolMessageID != "showcase-1" || result.Text != "" || len(result.Media) != 0 {
 		t.Fatalf("result=%+v calls=%d err=%v", result, calls, err)
 	}
 }

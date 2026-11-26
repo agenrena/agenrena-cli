@@ -152,15 +152,12 @@ func (client *agentBridgeClient) Shutdown() {
 }
 
 type turnResult struct {
-	ShowcaseSent          bool
-	ShowcaseMessageID     string
-	InputRequestSent      bool
-	InputRequestMessageID string
-	ThreadID              string
-	TurnID                string
-	Text                  string
-	Media                 []Media
-	HandedOff             bool
+	LastToolMessageID string
+	ThreadID          string
+	TurnID            string
+	Text              string
+	Media             []Media
+	HandedOff         bool
 }
 
 type codexRunner struct {
@@ -293,10 +290,8 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 	imageKeys := make(map[string]bool)
 	fallback, final := "", ""
 	handedOff := false
-	showcaseSent := false
-	showcaseMessageID := ""
-	inputRequestSent := false
-	inputRequestMessageID := ""
+	lastToolMessageID := ""
+	sentMessages := make(map[string]bool)
 	handoffCalled := false
 	var handoffErr error
 	var toolOptions turnToolOptions
@@ -348,10 +343,10 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 						}
 					}
 				} else {
-					if toolName == showcaseToolName {
-						showcaseSent, showcaseMessageID = true, sent.MessageID
-					} else {
-						inputRequestSent, inputRequestMessageID = true, sent.MessageID
+					// Replaying an earlier tool call does not publish a new message.
+					if !sentMessages[sent.MessageID] {
+						lastToolMessageID = sent.MessageID
+						sentMessages[sent.MessageID] = true
 					}
 					resultText += " Request message ID: " + sent.MessageID
 				}
@@ -409,13 +404,13 @@ func collectTurn(parent context.Context, client *jsonLineProcess, turnID string,
 					return turnResult{}, errors.New(message)
 				}
 				answer := strings.TrimSpace(final)
-				if answer == "" && !inputRequestSent && !showcaseSent {
+				if answer == "" && lastToolMessageID == "" {
 					answer = strings.TrimSpace(fallback)
 				}
-				if answer == "" && len(images) == 0 && !handedOff && !inputRequestSent && !showcaseSent {
+				if answer == "" && len(images) == 0 && !handedOff && lastToolMessageID == "" {
 					return turnResult{}, errors.New("Codex completed without a final message or generated image")
 				}
-				return turnResult{Text: answer, Media: images, HandedOff: handedOff, InputRequestSent: inputRequestSent, InputRequestMessageID: inputRequestMessageID, ShowcaseSent: showcaseSent, ShowcaseMessageID: showcaseMessageID}, nil
+				return turnResult{Text: answer, Media: images, HandedOff: handedOff, LastToolMessageID: lastToolMessageID}, nil
 			}
 			if stringValue(params["turnId"]) != turnID {
 				continue
@@ -991,15 +986,11 @@ func (service *bridgeService) handle(ctx context.Context, message InboundMessage
 			emitter.Emit(ctx, turnProgress{Status: "interrupted", Stage: "handoff"}, "")
 			return service.store.CompleteWithoutReply(message.ID, message.Route, result.ThreadID)
 		}
-		if (result.InputRequestSent || result.ShowcaseSent) && strings.TrimSpace(result.Text) == "" && len(result.Media) == 0 {
-			sentID := result.InputRequestMessageID
-			if result.ShowcaseSent {
-				sentID = result.ShowcaseMessageID
-			}
+		if result.LastToolMessageID != "" && strings.TrimSpace(result.Text) == "" && len(result.Media) == 0 {
 			if err := service.store.CompleteWithoutReply(message.ID, message.Route, result.ThreadID); err != nil {
 				return err
 			}
-			emitter.Emit(ctx, turnProgress{Status: "completed", Stage: "delivery"}, sentID)
+			emitter.Emit(ctx, turnProgress{Status: "completed", Stage: "delivery"}, result.LastToolMessageID)
 			return nil
 		}
 		clientMessageID := "codex-" + message.ID

@@ -27,7 +27,7 @@ func replyErrorCode(err error) string {
 
 func replyAuthorityLost(err error) bool {
 	switch replyErrorCode(err) {
-	case "CONVERSATION_AGENT_REPLY_DISABLED", "NOT_CONVERSATION_MEMBER":
+	case "CONVERSATION_AGENT_REPLY_DISABLED", "NOT_CONVERSATION_MEMBER", "BUSINESS_SERVICE_REPLY_WINDOW_EXPIRED":
 		return true
 	default:
 		return false

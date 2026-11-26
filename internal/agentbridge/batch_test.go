@@ -110,3 +110,38 @@ func TestNormalizeBatchRejectsPartialOrConflictingDeliveries(t *testing.T) {
 		})
 	}
 }
+
+func TestBusinessInquiryUsesExistingContextMediaNormalization(t *testing.T) {
+	png := testPNG(t)
+	downloads := 0
+	service := &Service{media: &MediaStore{Root: t.TempDir(), HTTPClient: &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			downloads++
+			return testHTTPResponseBytes(request, http.StatusOK, png, "image/png"), nil
+		}),
+	}}}
+	label := "Alice (bcr_customer) | 2026-11-10T10:00:00Z | message selected-1"
+	payload := map[string]any{
+		"id": "question", "conversation_id": "service-room", "message_type": "text",
+		"sender": map[string]any{"id": "bcr_customer"}, "text": "Can we park here?",
+		"context": map[string]any{"items": []any{map[string]any{
+			"type": "message", "id": "selected-1", "label": label, "content": "Our car",
+			"media":    []any{map[string]any{"type": "image", "url": "https://1.1.1.1/car.png"}},
+			"metadata": map[string]any{"message_type": "image"},
+		}}},
+	}
+	message, err := service.normalizeIncoming(context.Background(), payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "Can we park here?" || len(message.Context) != 1 || len(message.Media) != 0 {
+		t.Fatalf("question or context boundary changed: %+v", message)
+	}
+	item := message.Context[0]
+	if item.Label != label || item.Text != "Our car" || item.MessageType != "image" || len(item.Media) != 1 || downloads != 1 {
+		t.Fatalf("reference was lost: %+v downloads=%d", item, downloads)
+	}
+	if _, err := os.Stat(item.Media[0].Path); err != nil {
+		t.Fatal(err)
+	}
+}
