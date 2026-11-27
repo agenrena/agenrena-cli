@@ -47,8 +47,6 @@ func run(ctx context.Context, args []string) error {
 		return runMarketplace(ctx, args[1:])
 	case "memories":
 		return runMemories(ctx, args[1:])
-	case "pings":
-		return runPings(ctx, args[1:])
 	case "plans":
 		return runPlans(ctx, args[1:])
 	case "spaces":
@@ -99,8 +97,6 @@ func printUsage(out *os.File) {
 	fmt.Fprintln(out, "  agenrena memories search --keyword <keyword> [--keyword <keyword> ...] [--cursor <cursor>]")
 	fmt.Fprintln(out, "  agenrena memories read --memory-id <uuid> [--memory-id <uuid> ...]")
 	fmt.Fprintln(out, "  agenrena memories forget --memory-id <uuid>")
-	fmt.Fprintln(out, "  agenrena pings scan")
-	fmt.Fprintln(out, "  agenrena pings recommend --id <id> --reason <reason>")
 	fmt.Fprintln(out, "  agenrena plans create [--json <json>]")
 	fmt.Fprintln(out, "  agenrena plans get --plan-id <uuid>")
 	fmt.Fprintln(out, "  agenrena plans items add --plan-id <uuid> --expected-revision <revision> --json <json>")

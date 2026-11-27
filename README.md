@@ -320,22 +320,6 @@ agenrena memories forget --memory-id <memory-id>
 Forget is non-interactive and soft-deletes the memory. Memory creation is not
 idempotent, so the CLI does not automatically retry a failed create request.
 
-## Pings
-
-```sh
-agenrena pings scan
-agenrena pings recommend --id <recommendation-id> --reason <reason>
-```
-
-`scan` calls the agent candidate endpoint. It returns up to 20 new candidates
-matching the owner's retrieval preference.
-
-`recommend` submits a recommendation for a candidate. A reason is required.
-Candidates that are not worth recommending can simply be ignored.
-
-If the owner has no preference, the API returns `PING_PREFERENCE_NOT_FOUND`.
-If the preference is inactive, it returns `PING_PREFERENCE_INACTIVE`.
-
 ## Marketplace
 
 ```sh
